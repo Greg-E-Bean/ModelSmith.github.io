@@ -1,17 +1,38 @@
 {
-  "name": "ModelSmith — Solid Modeler",
+  "name": "ModelSmith",
   "short_name": "ModelSmith",
-  "description": "Browser-based solid modeling CAD tool for building 3D-printable designs.",
-  "id": "./index.html",
-  "start_url": "./index.html",
+  "description": "ModelSmith — solid modeler (v1.2.5)",
+  "version": "1.2.5",
+  "start_url": "./ModelSmith.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#0d0f12",
+  "background_color": "#14171c",
   "theme_color": "#c2895f",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

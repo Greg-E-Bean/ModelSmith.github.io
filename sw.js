@@ -1,15 +1,13 @@
 // ModelSmith service worker — caches the app shell so it launches offline.
-// Bump CACHE_NAME whenever index.html (or any shell asset) changes, so
-// visitors pick up the new version instead of a stale cached copy.
-const CACHE_NAME = 'modelsmith-v2';
+// Bumping CACHE_NAME on each release makes browsers drop the old cache and
+// pull the new files (see the 'activate' handler below).
+const CACHE_NAME = 'modelsmith-v1.2.5';
 const APP_SHELL = [
-  './',
-  './index.html',
+  './ModelSmith.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  './icon-180.png',
-  './icon-512-maskable.png'
+  './icon-180.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -29,7 +27,7 @@ self.addEventListener('activate', (event) => {
 });
 
 // Network-first for the app HTML (so updates are picked up when online),
-// cache-first for everything else (icons, fonts, CDN scripts).
+// cache-first for everything else (icons, fonts, etc).
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.mode === 'navigate' || req.destination === 'document') {
@@ -40,7 +38,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
           return res;
         })
-        .catch(() => caches.match(req).then((res) => res || caches.match('./index.html')))
+        .catch(() => caches.match(req).then((res) => res || caches.match('./ModelSmith.html')))
     );
     return;
   }
