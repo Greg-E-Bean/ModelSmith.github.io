@@ -3258,11 +3258,24 @@
       // Slice vertices carry both a position and a colour so paint survives the cut.
       // Each vertex is {p: Vector3, c: Vector3|null}. At a cut point we lerp both.
       function clipTri(a, b, c, normal, planePoint, posT, negT, cutSeg) {
-        const E = 1e-6;
+        const E = 1e-4;   // tolerance: vertices within this of the plane count as "on it"
         const verts = [a, b, c];
         const ds = verts.map(v => normal.dot(v.p.clone().sub(planePoint)));
-        if (ds.every(d => d >= -E)) { posT.push([a,b,c]); return; }
-        if (ds.every(d => d <= E)) { negT.push([a,b,c]); return; }
+        // sign per vertex: +1 above, -1 below, 0 on the plane
+        const sgn = ds.map(d => d > E ? 1 : (d < -E ? -1 : 0));
+
+        // Entirely on one side (treating on-plane as compatible with either side).
+        if (sgn.every(s => s >= 0)) { posT.push([a,b,c]); 
+          // if it also lies flat ON the plane, it contributes to neither cap edge
+          if (!(sgn.every(s => s === 0))) maybeEdge(verts, sgn, cutSeg);
+          return;
+        }
+        if (sgn.every(s => s <= 0)) { negT.push([a,b,c]);
+          if (!(sgn.every(s => s === 0))) maybeEdge(verts, sgn, cutSeg);
+          return;
+        }
+
+        // Genuinely straddles: split along the two crossing points.
         const posP = [], negP = [], cross = [];
         const lerpV = (u, w, t) => ({
           p: u.p.clone().lerp(w.p, t),
@@ -3270,9 +3283,11 @@
         });
         for (let i=0;i<3;i++){
           const cur=verts[i], cd=ds[i], nx=verts[(i+1)%3], nd=ds[(i+1)%3];
-          if (cd >= -E) posP.push(cur);
-          if (cd <= E) negP.push(cur);
-          if ((cd > E && nd < -E) || (cd < -E && nd > E)) {
+          const cs = sgn[i], nsg = sgn[(i+1)%3];
+          if (cs >= 0) posP.push(cur);
+          if (cs <= 0) negP.push(cur);
+          if (cs === 0) cross.push(cur);                 // a vertex sitting on the plane is a boundary point
+          else if ((cs > 0 && nsg < 0) || (cs < 0 && nsg > 0)) {
             const t = cd/(cd-nd);
             const ip = lerpV(cur, nx, t);
             posP.push(ip); negP.push(ip); cross.push(ip);
@@ -3280,7 +3295,16 @@
         }
         for (let i=1;i<posP.length-1;i++) posT.push([posP[0], posP[i], posP[i+1]]);
         for (let i=1;i<negP.length-1;i++) negT.push([negP[0], negP[i], negP[i+1]]);
-        if (cross.length === 2) cutSeg.push([cross[0], cross[1]]);
+        if (cross.length >= 2) cutSeg.push([cross[0], cross[1]]);
+      }
+
+      // If exactly two of a triangle's vertices lie ON the plane, that shared edge is
+      // part of the cut boundary — emit it so the cap loop closes even when the plane
+      // grazes existing mesh edges (common on tessellated spheres at the equator).
+      function maybeEdge(verts, sgn, cutSeg) {
+        const on = [];
+        for (let i=0;i<3;i++) if (sgn[i] === 0) on.push(verts[i]);
+        if (on.length === 2) cutSeg.push([on[0], on[1]]);
       }
 
       function buildLoopsFromSegments(segs) {
@@ -3332,6 +3356,9 @@
         if (cols) g.setAttribute('color', new THREE.BufferAttribute(cols,3));
         else if (material.vertexColors) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(arr.length).fill(1), 3));
         g.computeVertexNormals();
+        // Render both sides so a freshly cut face is never a dark back-face, even at
+        // grazing angles or if a boundary triangle ends up wound the other way.
+        material.side = THREE.DoubleSide;
         const m = new THREE.Mesh(g, material);
         recenterMeshTransform(m);
         m.castShadow = true; m.receiveShadow = true;
