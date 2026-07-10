@@ -58,10 +58,15 @@
     }
 
     class Vertex {
-      constructor(pos, normal, color){ this.pos=pos; this.normal=normal; this.color=color||new Vec(1,1,1); }
-      clone(){ return new Vertex(this.pos.clone(), this.normal.clone(), this.color.clone()); }
+      constructor(pos, normal, color, uv){ this.pos=pos; this.normal=normal; this.color=color||new Vec(1,1,1); this.uv=uv||{x:0,y:0}; }
+      clone(){ return new Vertex(this.pos.clone(), this.normal.clone(), this.color.clone(), {x:this.uv.x,y:this.uv.y}); }
       flip(){ this.normal = this.normal.negated(); }
-      interpolate(other, t){ return new Vertex(this.pos.lerp(other.pos,t), this.normal.lerp(other.normal,t), this.color.lerp(other.color,t)); }
+      interpolate(other, t){
+        return new Vertex(
+          this.pos.lerp(other.pos,t), this.normal.lerp(other.normal,t), this.color.lerp(other.color,t),
+          { x: this.uv.x + (other.uv.x - this.uv.x) * t, y: this.uv.y + (other.uv.y - this.uv.y) * t }
+        );
+      }
     }
 
     class Plane {
@@ -231,12 +236,27 @@
       }
 
       // ── THREE.js bridges ────────────────────────────────────────────
+      // Triplanar UV fallback for geometry that has no real UVs (or lost them to a
+      // previous boolean/sculpt step): project each vertex onto whichever axis
+      // plane its normal faces most directly, scaled down into a sane repeat
+      // range. Not a "correct" unwrap, but it guarantees every exported mesh
+      // carries *some* valid UV set, which is what Procreate (and other OBJ
+      // importers that reject UV-less models) require.
+      static _triplanarUV(p, n){
+        const ax=Math.abs(n.x), ay=Math.abs(n.y), az=Math.abs(n.z);
+        const s = 0.01; // world units (mm) -> UV space
+        if(ax>=ay && ax>=az) return { x: p.y*s, y: p.z*s };
+        if(ay>=ax && ay>=az) return { x: p.x*s, y: p.z*s };
+        return { x: p.x*s, y: p.y*s };
+      }
+
       static fromMesh(mesh){
         mesh.updateMatrixWorld(true);
         const geom = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
         const pos = geom.attributes.position;
         const nrm = geom.attributes.normal;
         const colAttr = geom.attributes.color;
+        const uvAttr = geom.attributes.uv;
         const m = mesh.matrixWorld;
         const nm = new THREE.Matrix3().getNormalMatrix(m);
         // Fallback colour for meshes with no per-vertex paint: their material's
@@ -257,7 +277,8 @@
             if(nrm){ vn=new THREE.Vector3().fromBufferAttribute(nrm, idx).applyMatrix3(nm).normalize(); }
             else { vn=new THREE.Vector3(0,0,1); }
             const vc = colAttr ? new Vec(colAttr.getX(idx), colAttr.getY(idx), colAttr.getZ(idx)) : fallback;
-            verts.push(new Vertex(new Vec(vp.x,vp.y,vp.z), new Vec(vn.x,vn.y,vn.z), vc));
+            const vuv = uvAttr ? { x: uvAttr.getX(idx), y: uvAttr.getY(idx) } : CSG._triplanarUV(vp, vn);
+            verts.push(new Vertex(new Vec(vp.x,vp.y,vp.z), new Vec(vn.x,vn.y,vn.z), vc, vuv));
           }
           polygons.push(new Polygon(verts));
         }
@@ -266,7 +287,7 @@
 
       // Returns a world-space BufferGeometry (caller recenters into a mesh).
       static toGeometry(csg){
-        const positions=[], normals=[], colors=[];
+        const positions=[], normals=[], colors=[], uvs=[];
         for(const poly of csg.polygons){
           const vs=poly.vertices;
           for(let i=2;i<vs.length;i++){
@@ -280,6 +301,7 @@
               positions.push(v.pos.x, v.pos.y, v.pos.z);
               normals.push(v.normal.x, v.normal.y, v.normal.z);
               colors.push(v.color.x, v.color.y, v.color.z);
+              uvs.push(v.uv.x, v.uv.y);
             }
           }
         }
@@ -287,12 +309,14 @@
         g.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
         g.setAttribute('normal', new THREE.Float32BufferAttribute(normals,3));
         g.setAttribute('color', new THREE.Float32BufferAttribute(colors,3));
+        g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs,2));
         g.computeVertexNormals();
         return g;
       }
     }
 
     window.CSGEngine = CSG;
+    window.CSGEngine.triplanarUV = CSG._triplanarUV;
   })();
   </script>
   
@@ -1411,7 +1435,7 @@
       function makeGeometryCSGReady(geometry) {
         let cleanGeo = geometry.toNonIndexed();
         for (let attr in cleanGeo.attributes) {
-          if (attr !== 'position' && attr !== 'normal' && attr !== 'color') {
+          if (attr !== 'position' && attr !== 'normal' && attr !== 'color' && attr !== 'uv') {
             cleanGeo.deleteAttribute(attr);
           }
         }
@@ -4360,9 +4384,31 @@
           mesh.updateMatrixWorld(true);
           const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
           const pos = g.attributes.position;
+          const nrm = g.attributes.normal;
+          const uvAttr = g.attributes.uv; // real UVs if this mesh still has them
+          const nm = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
           out += `o object_${mi+1}\n`;
-          for (let i=0;i<pos.count;i++){ const p=new THREE.Vector3().fromBufferAttribute(pos,i).applyMatrix4(mesh.matrixWorld); out += `v ${p.x.toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}\n`; }
-          for (let i=0;i<pos.count;i+=3){ out += `f ${base+i} ${base+i+1} ${base+i+2}\n`; }
+          const uvLines = [];
+          for (let i=0;i<pos.count;i++){
+            const p=new THREE.Vector3().fromBufferAttribute(pos,i).applyMatrix4(mesh.matrixWorld);
+            out += `v ${p.x.toFixed(5)} ${p.y.toFixed(5)} ${p.z.toFixed(5)}\n`;
+            // Every OBJ importer worth its salt (Procreate included) requires a
+            // vt for every v — fall back to a triplanar projection for any
+            // vertex that doesn't already carry a real UV.
+            let uv;
+            if (uvAttr) { uv = { x: uvAttr.getX(i), y: uvAttr.getY(i) }; }
+            else {
+              let n = new THREE.Vector3(0,0,1);
+              if (nrm) n.fromBufferAttribute(nrm, i).applyMatrix3(nm).normalize();
+              uv = window.CSGEngine.triplanarUV(p, n);
+            }
+            uvLines.push(`vt ${uv.x.toFixed(5)} ${uv.y.toFixed(5)}\n`);
+          }
+          out += uvLines.join('');
+          for (let i=0;i<pos.count;i+=3){
+            const a=base+i, b=base+i+1, c=base+i+2;
+            out += `f ${a}/${a} ${b}/${b} ${c}/${c}\n`;
+          }
           base += pos.count;
         });
         downloadBlob(new Blob([out], {type:'text/plain'}), fname);
