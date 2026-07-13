@@ -1,9 +1,9 @@
 {
   "name": "ModelSmith",
   "short_name": "ModelSmith",
-  "description": "ModelSmith — solid modeler (v1.3.0)",
+  "description": "ModelSmith — CAD modeler (v1.3.0)",
   "version": "1.3.0",
-  "start_url": "./ModelSmith.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
