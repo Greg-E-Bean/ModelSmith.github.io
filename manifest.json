@@ -1,8 +1,8 @@
 {
   "name": "ModelSmith",
   "short_name": "ModelSmith",
-  "description": "ModelSmith — CAD modeler (v1.3.0)",
-  "version": "1.3.0",
+  "description": "ModelSmith — CAD modeler (v1.4.0)",
+  "version": "1.4.0",
   "start_url": "/ModelSmith.github.io/index.html",
   "scope": "/ModelSmith.github.io/",
   "display": "standalone",
