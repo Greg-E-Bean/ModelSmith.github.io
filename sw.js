@@ -1,7 +1,7 @@
 // ModelSmith service worker — caches the app shell so it launches offline.
 // Bumping CACHE_NAME on each release makes browsers drop the old cache and
 // pull the new files (see the 'activate' handler below).
-const CACHE_NAME = 'modelsmith-v1.4.0-ui10';
+const CACHE_NAME = 'modelsmith-v1.4.5';
 const APP_SHELL = [
   './ModelSmith.html',
   './manifest.json',
