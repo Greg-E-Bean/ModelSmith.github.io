@@ -453,6 +453,34 @@
     .color-chip { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line);
       border-radius: 4px; background: none; cursor: pointer; }
 
+    /* ── Grouped tool rail ─────────────────────────────────────────────── */
+    .rail-sep { height: 1px; background: var(--line); margin: 4px 6px; flex-shrink: 0; }
+    .rail-slot { position: relative; display: flex; align-items: center; }
+    .rail-main { position: relative; display: flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; background: transparent; border: none; color: var(--text-dim);
+      cursor: pointer; border-radius: var(--r-sm); transition: .12s; }
+    .rail-main svg { width: 17px; height: 17px; }
+    .rail-main:hover { background: var(--s-750); color: var(--text); }
+    .rail-slot.active .rail-main { background: var(--accent-dim); color: var(--accent); }
+    /* the chevron sits in the slot's bottom-right corner */
+    .rail-chev { position: absolute; right: -1px; bottom: -1px; width: 13px; height: 13px;
+      padding: 0; display: flex; align-items: center; justify-content: center;
+      background: var(--s-800); border: 1px solid var(--line); border-radius: 3px;
+      color: var(--text-muted); cursor: pointer; z-index: 2; }
+    .rail-chev svg { width: 8px; height: 8px; }
+    .rail-chev:hover { color: var(--accent); border-color: var(--accent); }
+    .rail-slot.active .rail-chev { color: var(--accent); }
+    .rail-flyout { position: fixed; z-index: 300; background: rgba(24,28,34,.97);
+      border: 1px solid var(--line); border-radius: var(--r-md); padding: 5px;
+      box-shadow: 0 14px 44px rgba(0,0,0,.6); backdrop-filter: blur(14px);
+      display: flex; flex-direction: column; gap: 2px; min-width: 178px; }
+    .rail-fly-btn { display: flex; align-items: center; gap: 9px; padding: 7px 9px;
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      border-radius: var(--r-sm); font-size: 11px; text-align: left; white-space: nowrap; }
+    .rail-fly-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .rail-fly-btn:hover { background: var(--s-750); color: var(--text); }
+    .rail-fly-btn.active { background: var(--accent-dim); color: var(--accent); }
+
     /* ── Colour picker ─────────────────────────────────────────────────── */
     .swatch-stack { position: relative; width: 40px; height: 28px; background: none;
       border: none; cursor: pointer; padding: 0; flex-shrink: 0; }
@@ -464,6 +492,14 @@
     .swatch-stack:hover .sw-fg { border-color: rgba(255,255,255,.4); }
     .hud-seg-btn.icon-sq { padding: 5px; }
     .hud-seg-btn.icon-sq svg { width: 13px; height: 13px; }
+    .hud-check { display: flex; align-items: center; gap: 5px; font-size: 10px;
+      color: var(--text-dim); cursor: pointer; font-family: var(--mono);
+      letter-spacing: .3px; white-space: nowrap; }
+    .hud-check input { accent-color: var(--accent); width: 12px; height: 12px; margin: 0; }
+    .hud-select { background: var(--s-900); border: 1px solid var(--line); color: var(--text);
+      border-radius: 4px; padding: 4px 6px; font-family: var(--mono); font-size: 10px;
+      outline: none; max-width: 130px; }
+    .hud-select:focus { border-color: var(--accent); }
 
     .color-pop { position: absolute; bottom: 74px; left: 50%; transform: translateX(-50%) translateY(6px);
       width: 244px; background: rgba(22,26,32,.97); border: 1px solid var(--line);
@@ -1516,33 +1552,7 @@
     <div class="workspace">
       <div id="paint-banner" class="banner"></div>
 
-      <div class="tool-rail" id="paint-rail">
-        <button data-ptool="brush" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18.4 2.6a2 2 0 0 1 3 3L10 17l-4 1 1-4Z"/><path d="M2 22c1.5-3 3.5-4 5.5-3.5"/></svg><span class="tip">Brush (B)</span></button>
-        <button data-ptool="pencil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg><span class="tip">Pencil — hard edge (N)</span></button>
-        <button data-ptool="marker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h6l11-11a2.8 2.8 0 0 0-4-4L5 17v4Z"/><path d="M14 6l4 4"/></svg><span class="tip">Marker — builds up (M)</span></button>
-        <button data-ptool="airbrush"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V4a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v7"/><path d="M7 11h9v9a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-9Z"/><circle cx="19" cy="5" r=".6"/><circle cx="21" cy="8" r=".6"/><circle cx="18" cy="9" r=".6"/></svg><span class="tip">Airbrush (A)</span></button>
-        <button data-ptool="calligraphy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c4-1 7-4 9-8l6-11"/><path d="M18 2l3 2-4 9-3-2Z"/></svg><span class="tip">Calligraphy nib</span></button>
-        <button data-ptool="spray"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r=".7"/><circle cx="12" cy="5" r=".7"/><circle cx="17" cy="8" r=".7"/><circle cx="9" cy="12" r=".7"/><circle cx="14" cy="11" r=".7"/><circle cx="19" cy="14" r=".7"/><circle cx="6" cy="17" r=".7"/><circle cx="11" cy="18" r=".7"/><circle cx="16" cy="19" r=".7"/></svg><span class="tip">Spray / stipple</span></button>
-        <button data-ptool="eraser"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m19 20-9.5.02L3 13.5a2 2 0 0 1 0-2.83l7.6-7.6a2 2 0 0 1 2.83 0l6.36 6.37a2 2 0 0 1 0 2.83L13 18"/><path d="M21 20h-9"/></svg><span class="tip">Eraser (E)</span></button>
-        <div style="height:1px; background:var(--line); margin:4px 6px;"></div>
-        <button data-ptool="smudge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2s5 6 5 10a5 5 0 0 1-10 0c0-4 5-10 5-10Z"/></svg><span class="tip">Smudge</span></button>
-        <button data-ptool="blurbrush"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8" opacity=".45" stroke-dasharray="2 3"/></svg><span class="tip">Blur brush</span></button>
-        <button data-ptool="dodge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span class="tip">Dodge — lighten</span></button>
-        <button data-ptool="burn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2s6 6 6 11a6 6 0 0 1-12 0c0-5 6-11 6-11Z"/><path d="M12 18a3 3 0 0 0 3-3c0-2-3-4-3-4s-3 2-3 4a3 3 0 0 0 3 3Z" opacity=".5"/></svg><span class="tip">Burn — darken</span></button>
-        <button data-ptool="clone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6v4H9z"/><path d="M12 7v4"/><path d="M6 11h12v3H6z"/><path d="M8 14v7h8v-7"/></svg><span class="tip">Clone stamp — Alt+click to set source</span></button>
-        <div style="height:1px; background:var(--line); margin:4px 6px;"></div>
-        <button data-ptool="fill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 4 9 9-7.5 7.5a2.1 2.1 0 0 1-3 0L2 14a2.1 2.1 0 0 1 0-3L9 4Z"/><path d="m9 4-2-2"/><path d="M20 15s2 2.5 2 4a2 2 0 1 1-4 0c0-1.5 2-4 2-4Z"/></svg><span class="tip">Fill (G)</span></button>
-        <button data-ptool="gradient"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18M3 11h18M3 7h18" opacity=".5"/></svg><span class="tip">Gradient</span></button>
-        <button data-ptool="picker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m19 2 3 3-9 9-3-3 9-9Z"/><path d="m10 11-7 7v3h3l7-7"/></svg><span class="tip">Colour picker (I)</span></button>
-        <div style="height:1px; background:var(--line); margin:4px 6px;"></div>
-        <button data-ptool="line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="2"/><circle cx="20" cy="4" r="2"/></svg><span class="tip">Line (vector)</span></button>
-        <button data-ptool="rect"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/></svg><span class="tip">Rectangle (vector)</span></button>
-        <button data-ptool="ellipse"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="9" ry="7"/></svg><span class="tip">Ellipse (vector)</span></button>
-        <button data-ptool="pen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19 5 12l7-9 7 9-7 7Z"/><path d="M12 19v3"/></svg><span class="tip">Pen — click points, double-click to finish</span></button>
-        <button data-ptool="vedit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/><rect x="2" y="16" width="5" height="5" rx="1"/><rect x="17" y="3" width="5" height="5" rx="1"/></svg><span class="tip">Edit vector points — drag handles</span></button>
-        <div style="height:1px; background:var(--line); margin:4px 6px;"></div>
-        <button data-ptool="move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20M12 2 9 5m3-3 3 3M12 22l-3-3m3 3 3-3M2 12l3-3m-3 3 3 3M22 12l-3-3m3 3-3 3"/></svg><span class="tip">Move layer (V)</span></button>
-      </div>
+      <div class="tool-rail" id="paint-rail"></div>
 
       <div id="paint-viewport" class="viewport paint-viewport">
         <div class="canvas-wrap" id="canvas-wrap">
@@ -1551,7 +1561,7 @@
       </div>
 
       <div class="paint-hud" id="paint-hud">
-        <div class="hud-group">
+        <div class="hud-group" data-for="colour">
           <button class="swatch-stack" id="ps-color-open" title="Colour picker">
             <span class="sw-fg" id="ps-sw-fg"></span>
             <span class="sw-bg" id="ps-sw-bg"></span>
@@ -1560,17 +1570,54 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3l-7 7"/><path d="M8 21H3v-5"/><path d="M3 21l7-7"/></svg>
           </button>
         </div>
-        <div class="hud-group">
+        <div class="hud-group" data-for="size">
           <span class="hud-label">Size</span>
-          <input type="range" id="ps-size" min="1" max="200" step="1" value="12" style="width:90px; margin:0;">
-          <span class="val" id="ps-size-val" style="min-width:38px;">12</span>
+          <input type="range" id="ps-size" min="1" max="200" step="1" value="12" style="width:80px; margin:0;">
+          <span class="val" id="ps-size-val" style="min-width:34px;">12</span>
         </div>
-        <div class="hud-group">
+        <div class="hud-group" data-for="flow">
           <span class="hud-label">Flow</span>
-          <input type="range" id="ps-flow" min="1" max="100" step="1" value="100" style="width:70px; margin:0;">
+          <input type="range" id="ps-flow" min="1" max="100" step="1" value="100" style="width:64px; margin:0;">
           <span class="val" id="ps-flow-val" style="min-width:34px;">100%</span>
         </div>
-        <div class="hud-group">
+        <div class="hud-group" data-for="hard">
+          <span class="hud-label">Hardness</span>
+          <input type="range" id="ps-hard" min="0" max="100" step="1" value="80" style="width:64px; margin:0;">
+          <span class="val" id="ps-hard-val" style="min-width:34px;">80%</span>
+        </div>
+        <div class="hud-group" data-for="nib">
+          <span class="hud-label">Angle</span>
+          <input type="range" id="ps-nib" min="0" max="180" step="5" value="45" style="width:60px; margin:0;">
+          <span class="val" id="ps-nib-val" style="min-width:32px;">45°</span>
+        </div>
+        <div class="hud-group" data-for="tol">
+          <span class="hud-label">Similarity</span>
+          <input type="range" id="ps-tol" min="0" max="100" step="1" value="25" style="width:78px; margin:0;">
+          <span class="val" id="ps-tol-val" style="min-width:34px;">25%</span>
+          <label class="hud-check" title="Select everything EXCEPT the matching colour"><input type="checkbox" id="ps-invert"> Invert</label>
+          <label class="hud-check" title="Match across the whole canvas, not just the touching area"><input type="checkbox" id="ps-global"> Global</label>
+        </div>
+        <div class="hud-group" data-for="selops">
+          <button class="hud-seg-btn" id="ps-sel-invert" title="Invert the current selection">Invert</button>
+          <button class="hud-seg-btn" id="ps-sel-all2" title="Select all (Ctrl+A)">All</button>
+          <button class="hud-seg-btn" id="ps-sel-none2" title="Deselect (Ctrl+D)">None</button>
+        </div>
+        <div class="hud-group" data-for="vecfill">
+          <label class="hud-check"><input type="checkbox" id="ps-vfill"> Fill</label>
+          <label class="hud-check"><input type="checkbox" id="ps-vstroke" checked> Stroke</label>
+        </div>
+        <div class="hud-group" data-for="grad">
+          <label class="hud-check"><input type="checkbox" id="ps-gtobg"> To background colour</label>
+        </div>
+        <div class="hud-group" data-for="text">
+          <span class="hud-label">Font</span>
+          <select id="ps-font" class="hud-select"></select>
+          <button class="hud-seg-btn" id="ps-font-upload" title="Upload a TTF or OTF">Upload</button>
+          <span class="hud-label" style="margin-left:4px;">Size</span>
+          <input type="range" id="ps-textsize" min="8" max="400" step="1" value="72" style="width:70px; margin:0;">
+          <span class="val" id="ps-textsize-val" style="min-width:36px;">72</span>
+        </div>
+        <div class="hud-group" data-for="zoom">
           <span class="hud-label">Zoom</span>
           <button class="hud-seg-btn" id="ps-zoom-out">−</button>
           <span class="val" id="ps-zoom-val" style="min-width:42px;">100%</span>
@@ -1670,9 +1717,8 @@
 
       <!-- TOOL OPTIONS -->
       <div class="section" id="psec-tool" style="display:none;">
+        <div class="hint" style="text-align:left; margin-bottom:12px;">Most tool settings — size, flow, hardness, colour, similarity — now live in the bar along the bottom of the canvas, and change to match the tool you pick. The extras below apply to the brush family.</div>
         <div class="section-label">Brush</div>
-        <div class="param-label">Hardness <span class="val" id="pb-hard-val">80%</span></div>
-        <input type="range" id="pb-hard" min="0" max="100" step="1" value="80">
         <div class="param-label">Spacing <span class="val" id="pb-space-val">12%</span></div>
         <input type="range" id="pb-space" min="1" max="60" step="1" value="12">
         <div class="param-label" style="margin-top:6px;">Shape</div>
@@ -1681,15 +1727,12 @@
           <button class="toggle-btn" data-shape="square">Square</button>
         </div>
         <label class="check-row" style="margin-top:8px;"><input type="checkbox" id="pb-pressure" checked> Pressure sensitive (stylus)</label>
-        <div class="param-label" style="margin-top:8px;">Nib angle <span class="val" id="pb-nib-val">45°</span></div>
-        <input type="range" id="pb-nib" min="0" max="180" step="5" value="45">
-        <div class="hint" style="text-align:left; margin-top:0;">Only affects the Calligraphy nib — the angle the flat edge is held at.</div>
-        <div class="section-label" style="margin-top:14px;">Gradient</div>
-        <label class="check-row"><input type="checkbox" id="pg-tobg"> Fade to background colour (otherwise fades to transparent)</label>
-        <div class="section-label" style="margin-top:14px;">Vector shapes</div>
-        <label class="check-row"><input type="checkbox" id="pv-fill"> Fill shape</label>
-        <label class="check-row"><input type="checkbox" id="pv-stroke" checked> Stroke outline</label>
-        <div class="hint" style="margin-top:8px;">Vector shapes stay editable — pick the Move tool and drag their handles. Use "Rasterize" in the Layers panel to bake them into pixels.</div>
+        <div class="section-label" style="margin-top:14px;">Selection</div>
+        <div class="btn-grid">
+          <button class="mini-btn" id="ps-sel-all">Select all</button>
+          <button class="mini-btn" id="ps-sel-none">Deselect</button>
+        </div>
+        <div class="hint" style="margin-top:6px;">While a selection is active, painting only affects the inside of it. Ctrl+A selects all, Ctrl+D or Esc deselects. With Move-selected you can drag the lifted pixels as many times as you like — they only settle when you deselect or change tool.</div>
       </div>
 
       <!-- IMAGE -->
@@ -1724,8 +1767,14 @@
         <button class="mini-btn primary" id="pf-png" style="width:100%;">Export PNG</button>
         <button class="mini-btn" id="pf-png-layer" style="width:100%; margin-top:6px;">Export current layer</button>
         <div class="section-label" style="margin-top:14px;">Send to 3D</div>
-        <button class="mini-btn" id="pf-to3d" style="width:100%;">Use in Image → 3D</button>
-        <div class="hint" style="margin-top:6px;">Flattens the artwork and loads it straight into the 3D side's Image → 3D tool (dark areas become raised).</div>
+        <button class="mini-btn" id="pf-to3d" style="width:100%;">Extrude shape (Image → 3D)</button>
+        <div class="hint" style="margin-top:4px; text-align:left;">Turns the artwork into a solid — dark areas become raised. Best for a simple shape on a plain background.</div>
+        <button class="mini-btn" id="pf-to3d-tex" style="width:100%; margin-top:8px;">Apply as texture to selection</button>
+        <div class="hint" style="margin-top:4px; text-align:left;">Wraps the artwork onto whatever you've selected in 3D as colour, leaving its shape alone. Select the object first.</div>
+        <button class="mini-btn" id="pf-to3d-plane" style="width:100%; margin-top:8px;">Place as flat image</button>
+        <div class="hint" style="margin-top:4px; text-align:left;">Drops the artwork into the scene as a flat picture on the build plate — useful as a decal or a reference to model over.</div>
+        <div class="param-label" style="margin-top:10px;">Flat image width <span class="val" id="pf-plane-w-val">40 mm</span></div>
+        <input type="range" id="pf-plane-w" min="5" max="300" step="5" value="40">
         <div class="section-label" style="margin-top:14px;">Project</div>
         <button class="mini-btn" id="pf-clear" style="width:100%;">Clear artwork</button>
         <div class="hint" style="margin-top:6px;">Your artwork is saved on this device automatically.</div>
@@ -2567,6 +2616,101 @@
 
       // Flood-fill one coplanar face region (all triangles reachable from the clicked
       // triangle that share an edge and lie in the same plane) with the colour.
+      // ── Flat artwork → 3D ───────────────────────────────────────────────────
+      // Two ways to bring a painted image across, distinct from Image → 3D (which
+      // extrudes a heightmap):
+      //   applyImageTexture — wrap it onto an existing object's surface as colour
+      //   createImagePlane  — drop it in as a flat picture on the build plate
+      function planarUV(geom) {
+        // Box-planar projection: each triangle is mapped along whichever axis its
+        // normal points down most. CSG'd solids lose their UVs, so this gives them
+        // a sensible wrap instead of nothing.
+        const pos = geom.attributes.position;
+        geom.computeBoundingBox();
+        const bb = geom.boundingBox;
+        const size = new THREE.Vector3(); bb.getSize(size);
+        const uvs = new Float32Array(pos.count * 2);
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+        for (let i = 0; i < pos.count; i += 3) {
+          a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c.fromBufferAttribute(pos, i + 2);
+          n.crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize();
+          const ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
+          for (let k = 0; k < 3; k++) {
+            const p = new THREE.Vector3().fromBufferAttribute(pos, i + k);
+            let u, v;
+            if (ax >= ay && ax >= az)      { u = (p.y - bb.min.y) / (size.y || 1); v = (p.z - bb.min.z) / (size.z || 1); }
+            else if (ay >= ax && ay >= az) { u = (p.x - bb.min.x) / (size.x || 1); v = (p.z - bb.min.z) / (size.z || 1); }
+            else                           { u = (p.x - bb.min.x) / (size.x || 1); v = (p.y - bb.min.y) / (size.y || 1); }
+            uvs[(i + k) * 2] = u; uvs[(i + k) * 2 + 1] = v;
+          }
+        }
+        geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      }
+
+      function applyImageTexture(dataURL, opts) {
+        opts = opts || {};
+        if (!window.THREE) { banner("⚠️ 3D isn't ready yet."); return false; }
+        const targets = selected.filter(o => o.geometry && !o.userData.isSketch);
+        if (!targets.length) { banner("Select an object first, then apply the texture."); return false; }
+        const img = new Image();
+        img.onload = () => {
+          const tex = new THREE.Texture(img);
+          tex.needsUpdate = true;
+          const rep = opts.repeat || 1;
+          tex.wrapS = tex.wrapT = rep > 1 ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+          if (rep > 1) tex.repeat.set(rep, rep);
+          if (THREE.sRGBEncoding !== undefined) tex.encoding = THREE.sRGBEncoding;
+          targets.forEach(mesh => {
+            if (!mesh.geometry.attributes.uv) planarUV(mesh.geometry);
+            const old = mesh.material;
+            mesh.material = new THREE.MeshStandardMaterial({
+              map: tex,
+              color: 0xffffff,        // white base so the artwork shows at true hue
+              roughness: (old && old.roughness != null) ? old.roughness : 0.5,
+              metalness: (old && old.metalness != null) ? old.metalness : 0,
+              transparent: true,
+              side: THREE.DoubleSide
+            });
+            mesh.userData.textured = true;
+          });
+          saveHistory(); updateStatus();
+          banner(`Texture applied to ${targets.length} object${targets.length > 1 ? 's' : ''}.`);
+        };
+        img.onerror = () => banner("⚠️ Couldn't read that image.");
+        img.src = dataURL;
+        return true;
+      }
+
+      function createImagePlane(dataURL, mm) {
+        if (!window.THREE) { banner("⚠️ 3D isn't ready yet."); return false; }
+        const img = new Image();
+        img.onload = () => {
+          const ar = img.width / Math.max(1, img.height);
+          const w = mm || 40, h = w / ar;
+          const geo = new THREE.PlaneGeometry(w, h);   // Z is up here, so a plane
+          const tex = new THREE.Texture(img);          // already lies flat
+          tex.needsUpdate = true;
+          if (THREE.sRGBEncoding !== undefined) tex.encoding = THREE.sRGBEncoding;
+          const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+            map: tex, color: 0xffffff, roughness: 0.85, transparent: true, side: THREE.DoubleSide
+          }));
+          mesh.position.z = 0.05;      // a hair above the plate to avoid z-fighting
+          mesh.name = 'Artwork';
+          mesh.userData.isImagePlane = true;
+          mesh.castShadow = false; mesh.receiveShadow = true;
+          scene.add(mesh); objects.push(mesh);
+          selected.forEach(o => setEmissive(o, 0x000000));
+          selected = [mesh]; setEmissive(mesh, 0x0e3d44); attachGizmoTarget(mesh);
+          saveHistory(); updateStatus(); updateFloatingHUD();
+          banner(`Artwork placed as a ${w.toFixed(0)}×${h.toFixed(0)} mm image.`);
+        };
+        img.onerror = () => banner("⚠️ Couldn't read that image.");
+        img.src = dataURL;
+        return true;
+      }
+
+      window.ModelSmith3D = Object.assign(window.ModelSmith3D || {}, { applyImageTexture, createImagePlane });
+
       function paintFaceRegion(mesh, faceIndex, hex) {
         ensureVertexColors(mesh);
         const g = mesh.geometry;
@@ -8543,6 +8687,167 @@
         clearTimeout(b._t); b._t = setTimeout(() => b.classList.remove('show'), 2600);
       };
 
+      // ── Tool rail definition ────────────────────────────────────────────────
+      // Tools are grouped; the rail shows only the active tool of each group, with
+      // a chevron that flies out the alternatives. `last` remembers which member
+      // of the group was most recently used.
+      const ICON = {
+        brush: '<path d="M18.4 2.6a2 2 0 0 1 3 3L10 17l-4 1 1-4Z"/><path d="M2 22c1.5-3 3.5-4 5.5-3.5"/>',
+        pencil: '<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>',
+        marker: '<path d="M3 21h6l11-11a2.8 2.8 0 0 0-4-4L5 17v4Z"/><path d="M14 6l4 4"/>',
+        airbrush: '<path d="M9 11V4a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v7"/><path d="M7 11h9v9a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-9Z"/><circle cx="19" cy="5" r=".6"/><circle cx="21" cy="8" r=".6"/><circle cx="18" cy="9" r=".6"/>',
+        calligraphy: '<path d="M3 21c4-1 7-4 9-8l6-11"/><path d="M18 2l3 2-4 9-3-2Z"/>',
+        spray: '<circle cx="7" cy="7" r=".7"/><circle cx="12" cy="5" r=".7"/><circle cx="17" cy="8" r=".7"/><circle cx="9" cy="12" r=".7"/><circle cx="14" cy="11" r=".7"/><circle cx="19" cy="14" r=".7"/><circle cx="6" cy="17" r=".7"/><circle cx="11" cy="18" r=".7"/><circle cx="16" cy="19" r=".7"/>',
+        eraser: '<path d="m19 20-9.5.02L3 13.5a2 2 0 0 1 0-2.83l7.6-7.6a2 2 0 0 1 2.83 0l6.36 6.37a2 2 0 0 1 0 2.83L13 18"/><path d="M21 20h-9"/>',
+        smudge: '<path d="M12 2s5 6 5 10a5 5 0 0 1-10 0c0-4 5-10 5-10Z"/>',
+        blurbrush: '<circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8" opacity=".45" stroke-dasharray="2 3"/>',
+        dodge: '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+        burn: '<path d="M12 2s6 6 6 11a6 6 0 0 1-12 0c0-5 6-11 6-11Z"/>',
+        clone: '<path d="M9 3h6v4H9z"/><path d="M12 7v4"/><path d="M6 11h12v3H6z"/><path d="M8 14v7h8v-7"/>',
+        fill: '<path d="m9 4 9 9-7.5 7.5a2.1 2.1 0 0 1-3 0L2 14a2.1 2.1 0 0 1 0-3L9 4Z"/><path d="m9 4-2-2"/><path d="M20 15s2 2.5 2 4a2 2 0 1 1-4 0c0-1.5 2-4 2-4Z"/>',
+        gradient: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h18M3 11h18M3 7h18" opacity=".5"/>',
+        picker: '<path d="m19 2 3 3-9 9-3-3 9-9Z"/><path d="m10 11-7 7v3h3l7-7"/>',
+        line: '<path d="M4 20 20 4"/><circle cx="4" cy="20" r="2"/><circle cx="20" cy="4" r="2"/>',
+        rect: '<rect x="3" y="5" width="18" height="14" rx="2"/>',
+        ellipse: '<ellipse cx="12" cy="12" rx="9" ry="7"/>',
+        pen: '<path d="M12 19 5 12l7-9 7 9-7 7Z"/><path d="M12 19v3"/>',
+        vedit: '<path d="M5 19 19 5"/><rect x="2" y="16" width="5" height="5" rx="1"/><rect x="17" y="3" width="5" height="5" rx="1"/>',
+        move: '<path d="M12 2v20M2 12h20M12 2 9 5m3-3 3 3M12 22l-3-3m3 3 3-3M2 12l3-3m-3 3 3 3M22 12l-3-3m3 3-3 3"/>',
+        selrect: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" stroke-dasharray="3 2"/>',
+        seloval: '<ellipse cx="12" cy="12" rx="9" ry="7" stroke-dasharray="3 2"/>',
+        lasso: '<path d="M7 20c-2 0-4-1.5-4-3.5S5 13 7 13c1 0 2 .4 2.6 1"/><path d="M3.5 16.5C3.5 9.6 8.6 4 15 4c3.9 0 6.5 2.4 6.5 5.6 0 3.4-2.8 6.4-6.4 6.4-2.6 0-4.6-1.6-4.6-3.7 0-1.9 1.5-3.3 3.4-3.3"/>',
+        magic: '<path d="m3 21 9-9"/><path d="M12.5 6.5 15 4l2.5 2.5L20 4"/><path d="M15 4v6"/><path d="m14 12 3-3 4 4-3 3z"/><path d="M6 6l1 2 2 1-2 1-1 2-1-2-2-1 2-1z"/>',
+        selmove: '<path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" stroke-dasharray="2.5 2"/>',
+        text: '<path d="M4 6V4h16v2"/><path d="M12 4v16"/><path d="M9 20h6"/>'
+      };
+      const svg = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[k] || ''}</svg>`;
+
+      const TOOL_GROUPS = [
+        { id: 'select', last: 'selrect', tools: [
+          { t: 'selrect', label: 'Rectangle select (S)' },
+          { t: 'seloval', label: 'Oval select' },
+          { t: 'lasso', label: 'Lasso select — draw freehand' },
+          { t: 'magic', label: 'Magic select — same colour (W)' },
+          { t: 'selmove', label: 'Move selected pixels' }
+        ]},
+        { id: 'paint', last: 'brush', tools: [
+          { t: 'brush', label: 'Brush (B)' },
+          { t: 'pencil', label: 'Pencil — hard edge (N)' },
+          { t: 'marker', label: 'Marker — builds up (M)' },
+          { t: 'airbrush', label: 'Airbrush (A)' },
+          { t: 'calligraphy', label: 'Calligraphy nib' },
+          { t: 'spray', label: 'Spray / stipple' }
+        ]},
+        { id: 'erase', last: 'eraser', tools: [{ t: 'eraser', label: 'Eraser (E)' }] },
+        { id: 'retouch', last: 'smudge', tools: [
+          { t: 'smudge', label: 'Smudge' },
+          { t: 'blurbrush', label: 'Blur brush' },
+          { t: 'dodge', label: 'Dodge — lighten' },
+          { t: 'burn', label: 'Burn — darken' },
+          { t: 'clone', label: 'Clone stamp — Alt+click to set source' }
+        ]},
+        { id: 'ink', last: 'fill', tools: [
+          { t: 'fill', label: 'Fill (G)' },
+          { t: 'gradient', label: 'Gradient' },
+          { t: 'picker', label: 'Colour picker (I)' }
+        ]},
+        { id: 'vector', last: 'rect', tools: [
+          { t: 'rect', label: 'Rectangle (vector)' },
+          { t: 'ellipse', label: 'Ellipse (vector)' },
+          { t: 'line', label: 'Line (vector)' },
+          { t: 'pen', label: 'Pen — click points, double-click to finish' },
+          { t: 'vedit', label: 'Edit vector points — drag handles' }
+        ]},
+        { id: 'type', last: 'text', tools: [{ t: 'text', label: 'Text — click to place (T)' }] },
+        { id: 'move', last: 'move', tools: [{ t: 'move', label: 'Move layer (V)' }] }
+      ];
+      const groupOf = (t) => TOOL_GROUPS.find(g => g.tools.some(x => x.t === t));
+      const labelOf = (t) => { const g = groupOf(t); const e = g && g.tools.find(x => x.t === t); return e ? e.label : t; };
+
+      function buildRail() {
+        const rail = $('paint-rail'); if (!rail) return;
+        rail.innerHTML = '';
+        TOOL_GROUPS.forEach((g, gi) => {
+          if (gi) { const sep = document.createElement('div'); sep.className = 'rail-sep'; rail.appendChild(sep); }
+          const slot = document.createElement('div');
+          slot.className = 'rail-slot'; slot.dataset.group = g.id;
+          const main = document.createElement('button');
+          main.className = 'rail-main'; main.dataset.ptool = g.last;
+          main.innerHTML = svg(g.last) + `<span class="tip">${labelOf(g.last)}</span>`;
+          main.onclick = () => setTool(g.last);
+          slot.appendChild(main);
+          if (g.tools.length > 1) {
+            const chev = document.createElement('button');
+            chev.className = 'rail-chev'; chev.title = 'More tools';
+            chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m8 10 4 4 4-4"/></svg>';
+            chev.onclick = (e) => { e.stopPropagation(); openFlyout(g, slot); };
+            slot.appendChild(chev);
+          }
+          rail.appendChild(slot);
+        });
+        refreshRail();
+      }
+
+      let flyout = null;
+      function closeFlyout() { if (flyout) { flyout.remove(); flyout = null; } }
+      function openFlyout(g, slot) {
+        closeFlyout();
+        const f = document.createElement('div');
+        f.className = 'rail-flyout';
+        g.tools.forEach(({ t, label }) => {
+          const b = document.createElement('button');
+          b.className = 'rail-fly-btn' + (t === tool ? ' active' : '');
+          b.innerHTML = svg(t) + `<span>${label}</span>`;
+          b.onclick = () => { setTool(t); closeFlyout(); };
+          f.appendChild(b);
+        });
+        document.body.appendChild(f);
+        const r = slot.getBoundingClientRect();
+        f.style.top = Math.max(8, r.top - 4) + 'px';
+        // open on whichever side has room (the rail can be flipped right)
+        const right = r.left > window.innerWidth / 2;
+        if (right) f.style.right = (window.innerWidth - r.left + 8) + 'px';
+        else f.style.left = (r.right + 8) + 'px';
+        flyout = f;
+        setTimeout(() => document.addEventListener('pointerdown', onDocDown, { once: true }), 0);
+        function onDocDown(e) { if (f.contains(e.target)) { setTimeout(() => document.addEventListener('pointerdown', onDocDown, { once: true }), 0); return; } closeFlyout(); }
+      }
+
+      function refreshRail() {
+        document.querySelectorAll('#paint-rail .rail-slot').forEach(slot => {
+          const g = TOOL_GROUPS.find(x => x.id === slot.dataset.group);
+          const main = slot.querySelector('.rail-main');
+          main.dataset.ptool = g.last;
+          main.innerHTML = svg(g.last) + `<span class="tip">${labelOf(g.last)}</span>`;
+          main.onclick = () => setTool(g.last);
+          slot.classList.toggle('active', g.tools.some(x => x.t === tool));
+        });
+      }
+
+      function setTool(t) {
+        if (tool === 'pen' && penPts.length) finishPen();
+        // a lifted selection is committed when you move on to another tool
+        if (floatSel && t !== 'selmove') dropSelection();
+        tool = t;
+        const g = groupOf(t); if (g) g.last = t;
+        vSel = null; vHover = null;
+        refreshRail();
+        syncHud();
+        const c = t === 'picker' ? 'copy'
+          : t === 'move' || t === 'selmove' ? 'move'
+          : t === 'vedit' ? 'default'
+          : t === 'text' ? 'text'
+          : /^(selrect|seloval|lasso|magic)$/.test(t) ? 'crosshair' : 'crosshair';
+        if (view) view.style.cursor = c;
+        composite();
+        if (t === 'vedit') {
+          const l = active();
+          if (l && l.kind !== 'vector') banner('Pick a vector layer (VEC) to edit its points.');
+          drawVectorHandles();
+        }
+        banner(labelOf(t));
+      }
+
       // ── Colour system ───────────────────────────────────────────────────────
       // Kept as HSV internally (that's what the picker manipulates) and converted
       // to hex/rgba on demand. fg/bg mirror the classic two-swatch model.
@@ -8670,6 +8975,367 @@
         syncColorUI();
       }
 
+      // ── Selection ───────────────────────────────────────────────────────────
+      // A selection is a 1-channel mask the size of the canvas. Painting is clipped
+      // to it, and it can be moved/cut. `selPath` keeps a vector outline where we
+      // have one (rect/oval/lasso) purely for drawing the marching-ants overlay.
+      let sel = null;            // Uint8Array (W*H) or null = no selection
+      let selBounds = null;      // {x0,y0,x1,y1}
+      let selDrag = null;        // in-progress selection gesture
+      let selAnts = 0;           // marching-ants phase
+      let selMoveState = null;
+
+      function clearSelection() {
+        if (floatSel) dropSelection(false);
+        sel = null; selBounds = null; composite();
+      }
+
+      function selFromMask(mask) {
+        let x0 = W, y0 = H, x1 = -1, y1 = -1, any = false;
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          if (mask[y * W + x]) { any = true; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        }
+        if (!any) { sel = null; selBounds = null; return; }
+        sel = mask; selBounds = { x0, y0, x1, y1 };
+      }
+
+      // Rasterise a shape into a selection mask via an offscreen canvas.
+      function maskFromDraw(drawFn) {
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const x = c.getContext('2d');
+        x.fillStyle = '#fff'; drawFn(x);
+        const d = x.getImageData(0, 0, W, H).data;
+        const m = new Uint8Array(W * H);
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) if (d[i + 3] > 127) m[p] = 1;
+        return m;
+      }
+
+      // Magic select: choose pixels close in colour to the one clicked.
+      //   similarity  0%  = only a near-exact colour match
+      //             100%  = everything (the whole canvas)
+      // "Global" matches anywhere on the canvas rather than only the touching
+      // region, and "Invert" selects everything except the match — handy for
+      // grabbing a subject by clicking its background.
+      // Samples a CLEAN flatten, never the on-screen canvas, which also carries
+      // overlay graphics (ants, handles) that would corrupt the match.
+      function magicSelect(sx, sy) {
+        sx = Math.floor(sx); sy = Math.floor(sy);
+        if (sx < 0 || sy < 0 || sx >= W || sy >= H) return;
+        const pct = parseInt($('ps-tol') ? $('ps-tol').value : 25) || 0;
+        const invert = $('ps-invert') && $('ps-invert').checked;
+        const global = $('ps-global') && $('ps-global').checked;
+        // Map 0-100% onto colour distance. A linear map saturates almost at once
+        // (everything within ~30% matches), so the top of the slider would do
+        // nothing; squaring it keeps the low end fine-grained — where the useful
+        // work happens on gradients — while still reaching "select everything".
+        const maxDist = Math.sqrt(4 * 255 * 255);
+        const limit = Math.pow(pct / 100, 2) * maxDist;
+
+        const d = flatten().getContext('2d').getImageData(0, 0, W, H).data;
+        const s = (sy * W + sx) * 4;
+        const tr = d[s], tg = d[s + 1], tb = d[s + 2], ta = d[s + 3];
+        const close = (i) => {
+          const dr = d[i] - tr, dg = d[i + 1] - tg, db = d[i + 2] - tb, da = d[i + 3] - ta;
+          return Math.sqrt(dr * dr + dg * dg + db * db + da * da) <= limit;
+        };
+
+        const m = new Uint8Array(W * H);
+        if (global) {
+          for (let p = 0; p < W * H; p++) if (close(p * 4)) m[p] = 1;
+        } else {
+          const stack = [[sx, sy]];
+          while (stack.length) {
+            const [x, y] = stack.pop();
+            if (x < 0 || y < 0 || x >= W || y >= H) continue;
+            const p = y * W + x;
+            if (m[p]) continue;
+            if (!close(p * 4)) continue;
+            m[p] = 1;
+            stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+          }
+        }
+        if (invert) for (let p = 0; p < m.length; p++) m[p] = m[p] ? 0 : 1;
+        selFromMask(m);
+      }
+
+      // Flip the current selection inside-out.
+      function invertSelection() {
+        if (floatSel) dropSelection();
+        if (!sel) { selFromMask(new Uint8Array(W * H).fill(1)); composite(); return; }
+        const m = new Uint8Array(W * H);
+        for (let p = 0; p < sel.length; p++) m[p] = sel[p] ? 0 : 1;
+        selFromMask(m); composite();
+      }
+
+      // Build a canvas holding the selection as an alpha mask, for clipping.
+      let selMaskCanvas = null;
+      function selMaskToCanvas() {
+        if (!sel) return null;
+        if (selMaskCanvas && selMaskCanvas._for === sel) return selMaskCanvas;
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const x = c.getContext('2d');
+        const img = x.createImageData(W, H);
+        for (let p = 0; p < sel.length; p++) { if (sel[p]) { const i = p * 4; img.data[i] = 255; img.data[i+1] = 255; img.data[i+2] = 255; img.data[i+3] = 255; } }
+        x.putImageData(img, 0, 0);
+        c._for = sel; selMaskCanvas = c;
+        return c;
+      }
+
+      // Apply a drawing operation restricted to the selection: draw into a scratch
+      // canvas, mask it, then blit onto the layer.
+      function withSelection(l, fn) {
+        if (!sel) { fn(l.ctx); return; }
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const x = c.getContext('2d', { willReadFrequently: true });
+        fn(x);
+        x.globalCompositeOperation = 'destination-in';
+        x.drawImage(selMaskToCanvas(), 0, 0);
+        l.ctx.drawImage(c, 0, 0);
+      }
+
+      // Marching ants outline, drawn from the mask's edge pixels.
+      // A quiet, slowly-crawling dotted outline. Deliberately soft: one thin line
+      // that drifts a few pixels a second, rather than a hard black/white strobe.
+      function drawAnts() {
+        if (!sel || !selBounds) return;
+        vctx.save();
+        const px = 1 / zoom;                 // keep the line hairline at any zoom
+        vctx.lineWidth = 1.25 * px;
+        vctx.setLineDash([3 * px, 4 * px]);  // dotted, with clear gaps
+        vctx.lineDashOffset = -selAnts * px;
+        vctx.lineCap = 'round';
+        const edges = [];
+        const { x0, y0, x1, y1 } = selBounds;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const p = y * W + x;
+          if (!sel[p]) continue;
+          if (!x || !sel[p - 1]) edges.push([x, y, x, y + 1]);
+          if (x === W - 1 || !sel[p + 1]) edges.push([x + 1, y, x + 1, y + 1]);
+          if (!y || !sel[p - W]) edges.push([x, y, x + 1, y]);
+          if (y === H - 1 || !sel[p + W]) edges.push([x, y + 1, x + 1, y + 1]);
+        }
+        vctx.beginPath();
+        edges.forEach(([a, b, c2, d2]) => { vctx.moveTo(a, b); vctx.lineTo(c2, d2); });
+        // a soft dark halo underneath keeps the dots readable on light artwork,
+        // without the hard alternating flash of a classic two-tone marquee
+        vctx.strokeStyle = 'rgba(0,0,0,.45)';
+        vctx.lineWidth = 2.5 * px;
+        vctx.setLineDash([]);
+        vctx.globalAlpha = 0.35;
+        vctx.stroke();
+        vctx.globalAlpha = 1;
+        vctx.setLineDash([3 * px, 4 * px]);
+        vctx.lineDashOffset = -selAnts * px;
+        vctx.lineWidth = 1.25 * px;
+        vctx.strokeStyle = 'rgba(255,255,255,.95)';
+        vctx.stroke();
+        vctx.restore();
+      }
+
+      // Which HUD groups each tool needs. The bottom bar shows only these, so it
+      // always reflects the settings that actually apply to the current tool.
+      const HUD_FOR = {
+        brush:       ['colour','size','flow','hard','zoom'],
+        pencil:      ['colour','size','flow','zoom'],
+        marker:      ['colour','size','flow','hard','zoom'],
+        airbrush:    ['colour','size','flow','zoom'],
+        calligraphy: ['colour','size','flow','nib','zoom'],
+        spray:       ['colour','size','flow','zoom'],
+        eraser:      ['size','flow','hard','zoom'],
+        smudge:      ['size','flow','zoom'],
+        blurbrush:   ['size','flow','hard','zoom'],
+        dodge:       ['size','flow','hard','zoom'],
+        burn:        ['size','flow','hard','zoom'],
+        clone:       ['size','flow','zoom'],
+        fill:        ['colour','tol','zoom'],
+        gradient:    ['colour','flow','grad','zoom'],
+        picker:      ['colour','zoom'],
+        rect:        ['colour','size','vecfill','zoom'],
+        ellipse:     ['colour','size','vecfill','zoom'],
+        line:        ['colour','size','vecfill','zoom'],
+        pen:         ['colour','size','vecfill','zoom'],
+        vedit:       ['zoom'],
+        text:        ['colour','text','zoom'],
+        move:        ['zoom'],
+        selrect:     ['selops','zoom'],
+        seloval:     ['selops','zoom'],
+        lasso:       ['selops','zoom'],
+        magic:       ['tol','selops','zoom'],
+        selmove:     ['selops','zoom']
+      };
+      function syncHud() {
+        const want = HUD_FOR[tool] || ['zoom'];
+        document.querySelectorAll('#paint-hud .hud-group').forEach(g => {
+          g.style.display = want.includes(g.dataset.for) ? '' : 'none';
+        });
+      }
+
+      // ── Text ────────────────────────────────────────────────────────────────
+      // Draws with the same fonts as the 3D side. three.js typeface JSON stores each
+      // glyph as an SVG-ish command string ("m/l/q/b/z", endpoint-first for curves)
+      // in font units; we walk that directly onto a Path2D, so no three.js needed.
+      let textPlace = null;   // { x, y, str } while typing
+      let lastMagic = null;   // last magic-select click, so settings can re-run it
+
+      function glyphPath(glyph, upm, size) {
+        const p = new Path2D();
+        if (!glyph || !glyph.o) return p;
+        const t = glyph.o.split(/\s+/);
+        const k = size / upm;
+        let i = 0;
+        const n = () => parseFloat(t[i++]);
+        while (i < t.length) {
+          const c = t[i++];
+          if (c === 'm') { const x = n() * k, y = -n() * k; p.moveTo(x, y); }
+          else if (c === 'l') { const x = n() * k, y = -n() * k; p.lineTo(x, y); }
+          else if (c === 'q') {           // q endX endY ctrlX ctrlY
+            const ex = n() * k, ey = -n() * k, cx1 = n() * k, cy1 = -n() * k;
+            p.quadraticCurveTo(cx1, cy1, ex, ey);
+          } else if (c === 'b') {         // b endX endY c1X c1Y c2X c2Y
+            const ex = n() * k, ey = -n() * k, c1x = n() * k, c1y = -n() * k, c2x = n() * k, c2y = -n() * k;
+            p.bezierCurveTo(c1x, c1y, c2x, c2y, ex, ey);
+          } else if (c === 'z') { p.closePath(); }
+        }
+        return p;
+      }
+
+      // Draw a string; returns its measured width so we can centre/preview it.
+      function drawText(ctx, data, str, x, y, size, fill) {
+        if (!data || !data.glyphs) return 0;
+        const upm = data.resolution || 1000;
+        let cursor = 0;
+        ctx.save();
+        ctx.fillStyle = fill;
+        for (const ch of str) {
+          const g = data.glyphs[ch];
+          if (!g) { cursor += (upm * 0.4) * (size / upm); continue; }
+          if (g.o) {
+            ctx.save();
+            ctx.translate(x + cursor, y);
+            ctx.fill(glyphPath(g, upm, size));
+            ctx.restore();
+          }
+          cursor += (g.ha || upm * 0.5) * (size / upm);
+        }
+        ctx.restore();
+        return cursor;
+      }
+      function measureText(data, str, size) {
+        if (!data || !data.glyphs) return 0;
+        const upm = data.resolution || 1000;
+        let w = 0;
+        for (const ch of str) {
+          const g = data.glyphs[ch];
+          w += ((g && g.ha) || upm * 0.5) * (size / upm);
+        }
+        return w;
+      }
+
+      // Fonts available to the paint side: the same built-ins the 3D tool uses
+      // (fetched once and cached) plus anything the user uploaded.
+      const paintFonts = {};    // key -> typeface data
+      function paintFontData(key) {
+        if (paintFonts[key]) return Promise.resolve(paintFonts[key]);
+        // uploaded fonts are already converted and stored by the 3D side
+        try {
+          const store = JSON.parse(localStorage.getItem('modelsmith_fonts_v1') || '{}');
+          if (store[key] && store[key].data) { paintFonts[key] = store[key].data; return Promise.resolve(paintFonts[key]); }
+        } catch (e) {}
+        const urls = {
+          helvetiker: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/helvetiker_regular.typeface.json',
+          helvetiker_bold: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json',
+          optimer: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/optimer_regular.typeface.json',
+          optimer_bold: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/optimer_bold.typeface.json',
+          gentilis: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/gentilis_regular.typeface.json',
+          gentilis_bold: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/fonts/gentilis_bold.typeface.json'
+        };
+        if (!urls[key]) return Promise.reject(new Error('Unknown font'));
+        return fetch(urls[key]).then(r => r.json()).then(d => { paintFonts[key] = d; return d; });
+      }
+
+      // Keep the paint font dropdown in step with the 3D one (incl. uploads).
+      // Uploaded fonts are read straight from storage rather than scraped from the
+      // 3D <select>, so they're available even if the 3D side hasn't started yet.
+      function syncFontList() {
+        const mine = $('ps-font');
+        if (!mine) return;
+        const keep = mine.value;
+        mine.innerHTML = '';
+        const add = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; mine.appendChild(o); };
+        [['helvetiker','Helvetiker (sans)'], ['helvetiker_bold','Helvetiker Bold'],
+         ['optimer','Optimer (sans)'], ['optimer_bold','Optimer Bold'],
+         ['gentilis','Gentilis (serif)'], ['gentilis_bold','Gentilis Bold']].forEach(([v, t]) => add(v, t));
+        try {
+          const store = JSON.parse(localStorage.getItem('modelsmith_fonts_v1') || '{}');
+          Object.keys(store).forEach(k => {
+            if (store[k] && store[k].data) add(k, (store[k].family || k) + ' (uploaded)');
+          });
+        } catch (e) { /* no uploads stored */ }
+        if (keep && [...mine.options].some(o => o.value === keep)) mine.value = keep;
+      }
+
+      // ── Floating selection ──────────────────────────────────────────────────
+      // Moving a selection lifts its pixels out of the layer into `floatSel`, a
+      // small canvas that can be dragged repeatedly. The layer keeps a hole where
+      // they came from until the float is dropped (on deselect, tool change, or
+      // any other edit), at which point it's stamped back at its final position.
+      let floatSel = null;   // { canvas, x, y, mask, w, h, mx, my }
+
+      function liftSelection(l) {
+        if (!sel || !selBounds || floatSel) return;
+        const { x0, y0, x1, y1 } = selBounds;
+        const w = x1 - x0 + 1, h = y1 - y0 + 1;
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const cx2 = c.getContext('2d', { willReadFrequently: true });
+        // copy just the selection's bounding box, then mask it to the exact shape
+        cx2.drawImage(l.canvas, x0, y0, w, h, 0, 0, w, h);
+        const mcv = document.createElement('canvas'); mcv.width = w; mcv.height = h;
+        const mx = mcv.getContext('2d');
+        const mimg = mx.createImageData(w, h);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          if (sel[(y + y0) * W + (x + x0)]) {
+            const i = (y * w + x) * 4;
+            mimg.data[i] = mimg.data[i+1] = mimg.data[i+2] = mimg.data[i+3] = 255;
+          }
+        }
+        mx.putImageData(mimg, 0, 0);
+        cx2.globalCompositeOperation = 'destination-in';
+        cx2.drawImage(mcv, 0, 0);
+        // punch the hole in the layer
+        l.ctx.save();
+        l.ctx.globalCompositeOperation = 'destination-out';
+        l.ctx.drawImage(selMaskToCanvas(), 0, 0);
+        l.ctx.restore();
+        floatSel = { canvas: c, x: x0, y: y0, w, h, maskCanvas: mcv };
+        composite();
+      }
+
+      // Stamp a floating selection back down and forget it.
+      function dropSelection(push) {
+        const l = active();
+        if (!floatSel || !l) return;
+        l.ctx.drawImage(floatSel.canvas, Math.round(floatSel.x), Math.round(floatSel.y));
+        floatSel = null;
+        composite();
+        if (push !== false) { pushHistory(); renderLayerList(); }
+      }
+
+      // Rebuild the selection mask to follow the float's current position, so the
+      // marching ants track the pixels as they move.
+      function syncFloatMask() {
+        if (!floatSel) return;
+        const m = new Uint8Array(W * H);
+        const fx = Math.round(floatSel.x), fy = Math.round(floatSel.y);
+        const md = floatSel.maskCanvas.getContext('2d').getImageData(0, 0, floatSel.w, floatSel.h).data;
+        for (let y = 0; y < floatSel.h; y++) for (let x = 0; x < floatSel.w; x++) {
+          if (md[(y * floatSel.w + x) * 4 + 3] > 127) {
+            const gx = x + fx, gy = y + fy;
+            if (gx >= 0 && gy >= 0 && gx < W && gy < H) m[gy * W + gx] = 1;
+          }
+        }
+        selFromMask(m);
+      }
+
       // ── Layers ──────────────────────────────────────────────────────────────
       let layerSeq = 1;
       function makeLayer(name, kind) {
@@ -8704,8 +9370,33 @@
           vctx.globalAlpha = l.opacity;
           vctx.globalCompositeOperation = l.blend || 'source-over';
           vctx.drawImage(l.canvas, 0, 0);
+          // a lifted selection rides above its own layer until dropped
+          if (floatSel && l.id === activeId) vctx.drawImage(floatSel.canvas, Math.round(floatSel.x), Math.round(floatSel.y));
         });
         vctx.globalAlpha = 1; vctx.globalCompositeOperation = 'source-over';
+        // overlays sit on top of the artwork and are never baked into a layer
+        if (!_inOverlay) {
+          _inOverlay = true;
+          drawAnts();
+          drawVectorHandles();
+          _inOverlay = false;
+        }
+      }
+      let _inOverlay = false;
+
+      // Marching-ants animation: only runs while a selection exists and the studio
+      // is on screen, so it costs nothing the rest of the time.
+      // Crawl the dashes slowly (~7px/sec) and only repaint ~12 times a second.
+      // The old version advanced every frame, which read as a harsh flicker.
+      let _antsLast = 0;
+      function antsTick(ts) {
+        const on = sel && $('paint-app') && $('paint-app').style.display !== 'none' && !drawing;
+        if (on && ts - _antsLast > 80) {
+          _antsLast = ts;
+          selAnts = (selAnts + 0.6) % 7;
+          composite();
+        }
+        requestAnimationFrame(antsTick);
       }
 
       // Re-draw a vector layer from its shape list.
@@ -8958,7 +9649,7 @@
       function toolSize() { return parseInt($('ps-size').value) || 12; }
       function toolAlpha() { return ((parseInt($('ps-flow').value) || 100) / 100) * fg.a; }
       function toolColor() { return toHex(fg); }
-      function hardness() { return (parseInt($('pb-hard').value) || 80) / 100; }
+      function hardness() { const e = $('ps-hard'); return (parseInt(e ? e.value : 80) || 80) / 100; }
       function spacing() { return Math.max(1, (parseInt($('pb-space').value) || 12) / 100 * toolSize()); }
       function brushShape() { const b = document.querySelector('#pb-shape .toggle-btn.active'); return b ? b.dataset.shape : 'round'; }
 
@@ -8967,8 +9658,50 @@
         view.setPointerCapture(e.pointerId);
         const p = pos(e);
 
+        // --- selection tools ---
+        if (tool === 'selrect' || tool === 'seloval' || tool === 'lasso') {
+          selDrag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, pts: [{ x: p.x, y: p.y }] };
+          drawing = true; return;
+        }
+        if (tool === 'magic') {
+          lastMagic = { x: p.x, y: p.y };
+          magicSelect(p.x, p.y);
+          composite();
+          banner(sel ? 'Selected matching area — paint is now limited to it.' : 'Nothing matched there.');
+          return;
+        }
+        if (tool === 'selmove') {
+          if (!sel) return banner('Make a selection first.');
+          // Lift the selected pixels into a "floating" buffer the first time we
+          // start moving. After that the float and its mask travel together, so
+          // repeated drags keep moving the same pixels instead of re-cutting the
+          // layer at the original spot (which used to slice anything half-outside).
+          if (!floatSel) liftSelection(l);
+          selMoveState = { start: p, ox: floatSel.x, oy: floatSel.y };
+          drawing = true; return;
+        }
+
+        if (tool === 'text') {
+          if (l.kind === 'vector') return banner('Text lands on raster layers — pick a PIX layer.');
+          const str = prompt('Text to add:', '');
+          if (!str) return;
+          const key = $('ps-font').value;
+          const size = parseInt($('ps-textsize').value) || 72;
+          banner('Rendering text…');
+          paintFontData(key).then(data => {
+            const w = measureText(data, str, size);
+            // place centred on the click, which is what people expect
+            const draw = (ctx) => drawText(ctx, data, str, p.x - w / 2, p.y + size * 0.35, size, toolColor());
+            if (sel) withSelection(l, draw); else draw(l.ctx);
+            composite(); pushHistory(); renderLayerList();
+            banner(`Added "${str.length > 18 ? str.slice(0, 18) + '…' : str}".`);
+          }).catch(() => banner('⚠️ Couldn\'t load that font — check your connection, or upload a TTF/OTF.'));
+          return;
+        }
+
         if (tool === 'picker') {
-          const d = vctx.getImageData(Math.floor(p.x), Math.floor(p.y), 1, 1).data;
+          // read from a clean flatten so ants/handles can't be picked up as colour
+          const d = flatten().getContext('2d').getImageData(Math.floor(p.x), Math.floor(p.y), 1, 1).data;
           if (d[3] > 0) {
             const h = rgb2hsv(d[0], d[1], d[2]);
             fg = { ...h, a: fg.a };
@@ -8979,7 +9712,23 @@
         }
         if (tool === 'fill') {
           if (l.kind === 'vector') return banner('Fill works on raster layers.');
-          floodFill(l, p.x, p.y, toolColor()); composite(); pushHistory(); return;
+          if (sel && !sel[Math.floor(p.y) * W + Math.floor(p.x)]) return banner('That point is outside the selection.');
+          const before = sel ? l.ctx.getImageData(0, 0, W, H) : null;
+          floodFill(l, p.x, p.y, toolColor());
+          if (sel) {
+            // keep only the part of the fill that falls inside the selection
+            const filled = document.createElement('canvas'); filled.width = W; filled.height = H;
+            const fx = filled.getContext('2d');
+            fx.drawImage(l.canvas, 0, 0);
+            fx.globalCompositeOperation = 'destination-in';
+            fx.drawImage(selMaskToCanvas(), 0, 0);
+            l.ctx.setTransform(1, 0, 0, 1, 0, 0);
+            l.ctx.putImageData(before, 0, 0);
+            l.ctx.save(); l.ctx.globalCompositeOperation = 'destination-out';
+            l.ctx.drawImage(selMaskToCanvas(), 0, 0); l.ctx.restore();
+            l.ctx.drawImage(filled, 0, 0);
+          }
+          composite(); pushHistory(); return;
         }
         if (tool === 'clone' && (e.altKey || e.metaKey)) {
           cloneSrc = { x: p.x, y: p.y }; cloneOffset = null;
@@ -8997,7 +9746,7 @@
             if (si >= 0) { vSel = { shapeIndex: si, mode: 'shape', grab: p, orig: JSON.parse(JSON.stringify(l.shapes[si])) }; drawing = true; }
             else vSel = null;
           }
-          composite(); drawVectorHandles();
+          composite();
           return;
         }
         if (tool === 'gradient') {
@@ -9010,16 +9759,18 @@
         }
         if (tool === 'pen') {
           penPts.push({ x: p.x, y: p.y });
-          previewShape = { type: 'path', pts: penPts.slice(), stroke: toolColor(), width: toolSize(), strokeOn: true, fill: $('pv-fill').checked ? toolColor() : 'transparent' };
+          previewShape = { type: 'path', pts: penPts.slice(), stroke: toolColor(), width: toolSize(), strokeOn: true, fill: ($('ps-vfill') && $('ps-vfill').checked) ? toolColor() : 'transparent' };
           drawPreview(); return;
         }
         if (tool === 'line' || tool === 'rect' || tool === 'ellipse') {
           shapeStart = p; drawing = true; return;
         }
 
-        // brush / eraser / smudge
+        // brush / eraser / smudge / retouch — clipped to the selection if there is one
         drawing = true; last = p; dist = 0;
+        beginStroke(l);
         strokeAt(l, p, p);
+        compositeStroke(l);
       }
 
       // Pixel-level helpers shared by the retouch brushes (blur/dodge/burn).
@@ -9041,8 +9792,60 @@
         return hard >= 0.99 ? 1 : Math.min(1, (1 - d) / Math.max(0.001, 1 - hard));
       };
 
+      // When a selection is active, brush work is drawn onto a scratch layer that
+      // mirrors the target, then masked and blitted back — so strokes stop at the
+      // selection edge. Retouch tools (blur/dodge/burn/smudge/clone) read pixels
+      // directly, so they operate on the scratch copy too and stay consistent.
+      let strokeScratch = null;
+      function beginStroke(l) {
+        if (!sel) { strokeScratch = null; return; }
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const x = c.getContext('2d', { willReadFrequently: true });
+        x.drawImage(l.canvas, 0, 0);
+        strokeScratch = { canvas: c, ctx: x, before: l.ctx.getImageData(0, 0, W, H) };
+      }
+      function endStroke(l) {
+        if (!strokeScratch) return;
+        // Keep only what changed inside the selection: restore the original, then
+        // paint the scratch result back through the mask.
+        const masked = document.createElement('canvas'); masked.width = W; masked.height = H;
+        const mx = masked.getContext('2d');
+        mx.drawImage(strokeScratch.canvas, 0, 0);
+        mx.globalCompositeOperation = 'destination-in';
+        mx.drawImage(selMaskToCanvas(), 0, 0);
+        l.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        l.ctx.putImageData(strokeScratch.before, 0, 0);
+        l.ctx.save();
+        l.ctx.globalCompositeOperation = 'destination-out';
+        l.ctx.drawImage(selMaskToCanvas(), 0, 0);
+        l.ctx.restore();
+        l.ctx.drawImage(masked, 0, 0);
+        strokeScratch = null;
+      }
+      // Live preview mid-stroke: show the layer as it will land, without committing.
+      function compositeStroke(l) {
+        if (!strokeScratch) { composite(); return; }
+        const masked = document.createElement('canvas'); masked.width = W; masked.height = H;
+        const mx = masked.getContext('2d');
+        mx.drawImage(strokeScratch.canvas, 0, 0);
+        mx.globalCompositeOperation = 'destination-in';
+        mx.drawImage(selMaskToCanvas(), 0, 0);
+        // temporarily swap the layer's pixels for the preview
+        const keep = l.canvas;
+        const prev = document.createElement('canvas'); prev.width = W; prev.height = H;
+        const px = prev.getContext('2d');
+        px.putImageData(strokeScratch.before, 0, 0);
+        px.save(); px.globalCompositeOperation = 'destination-out';
+        px.drawImage(selMaskToCanvas(), 0, 0); px.restore();
+        px.drawImage(masked, 0, 0);
+        l.canvas = prev;
+        composite();
+        drawAnts();
+        l.canvas = keep;
+      }
+
       function strokeAt(l, from, to) {
-        const ctx = l.ctx;
+        const ctx = (strokeScratch ? strokeScratch.ctx : l.ctx);
         const pressure = ($('pb-pressure').checked && to.p) ? (0.35 + to.p * 0.65) : 1;
         const size = toolSize() * pressure;
         const alpha = toolAlpha();
@@ -9176,9 +9979,10 @@
             const s = Math.max(2, Math.ceil(size));
             const sx = Math.round(to.x + cloneOffset.x - s / 2), sy = Math.round(to.y + cloneOffset.y - s / 2);
             if (sx < 0 || sy < 0 || sx + s > W || sy + s > H) return;
-            // sample from the composite so cloning reads what you can see
+            // Sample a clean flatten (not the on-screen canvas, which also carries
+            // marching ants and vector handles) so clones never pick up overlays.
             const tmp = document.createElement('canvas'); tmp.width = s; tmp.height = s;
-            tmp.getContext('2d').drawImage(view, sx, sy, s, s, 0, 0, s, s);
+            tmp.getContext('2d').drawImage(flatten(), sx, sy, s, s, 0, 0, s, s);
             ctx.save();
             ctx.globalAlpha = alpha;
             ctx.beginPath();
@@ -9194,7 +9998,7 @@
         }
       }
       // nib angle for the calligraphy tool, in radians
-      function THREEangle() { return ((parseInt($('pb-nib') && $('pb-nib').value) || 45) * Math.PI) / 180; }
+      function THREEangle() { const e = $('ps-nib'); return ((parseInt(e ? e.value : 45) || 45) * Math.PI) / 180; }
 
       function drawPreview() {
         composite();
@@ -9221,6 +10025,29 @@
         const l = active(); if (!l) return;
         const p = pos(e);
 
+        // --- selection gestures ---
+        if (drawing && selDrag && /^(selrect|seloval|lasso)$/.test(tool)) {
+          selDrag.x1 = p.x; selDrag.y1 = p.y;
+          if (tool === 'lasso') selDrag.pts.push({ x: p.x, y: p.y });
+          composite();
+          vctx.save();
+          vctx.strokeStyle = '#5dd6ff'; vctx.lineWidth = 1 / zoom;
+          vctx.setLineDash([4 / zoom, 3 / zoom]);
+          vctx.beginPath();
+          if (tool === 'selrect') vctx.rect(Math.min(selDrag.x0, p.x), Math.min(selDrag.y0, p.y), Math.abs(p.x - selDrag.x0), Math.abs(p.y - selDrag.y0));
+          else if (tool === 'seloval') vctx.ellipse((selDrag.x0 + p.x) / 2, (selDrag.y0 + p.y) / 2, Math.abs(p.x - selDrag.x0) / 2, Math.abs(p.y - selDrag.y0) / 2, 0, 0, Math.PI * 2);
+          else { const q = selDrag.pts; vctx.moveTo(q[0].x, q[0].y); for (let i = 1; i < q.length; i++) vctx.lineTo(q[i].x, q[i].y); }
+          vctx.stroke(); vctx.restore();
+          return;
+        }
+        if (drawing && selMoveState && tool === 'selmove' && floatSel) {
+          floatSel.x = selMoveState.ox + (p.x - selMoveState.start.x);
+          floatSel.y = selMoveState.oy + (p.y - selMoveState.start.y);
+          syncFloatMask();
+          composite();
+          return;
+        }
+
         if (tool === 'vedit') {
           if (drawing && vSel) {
             const s = l.shapes[vSel.shapeIndex];
@@ -9233,13 +10060,13 @@
               if (s.type === 'path') s.pts.forEach((pt, i) => { pt.x = o.pts[i].x + dx; pt.y = o.pts[i].y + dy; });
               else { s.x1 = o.x1 + dx; s.y1 = o.y1 + dy; s.x2 = o.x2 + dx; s.y2 = o.y2 + dy; }
             }
-            renderVector(l); composite(); drawVectorHandles();
+            renderVector(l); composite();
           } else {
             const h = hitHandle(l, p);
             const changed = JSON.stringify(h) !== JSON.stringify(vHover);
             vHover = h;
             view.style.cursor = h ? 'grab' : (hitShape(l, p) >= 0 ? 'move' : 'default');
-            if (changed) { composite(); drawVectorHandles(); }
+            if (changed) { composite(); }
           }
           return;
         }
@@ -9262,7 +10089,7 @@
           vctx.save();
           const g = vctx.createLinearGradient(gradStart.x, gradStart.y, p.x, p.y);
           g.addColorStop(0, toRGBA(fg));
-          g.addColorStop(1, ($('pg-tobg') && $('pg-tobg').checked) ? toRGBA(bg) : toRGBA({ ...fg, a: 0 }));
+          g.addColorStop(1, ($('ps-gtobg') && $('ps-gtobg').checked) ? toRGBA(bg) : toRGBA({ ...fg, a: 0 }));
           vctx.fillStyle = g; vctx.fillRect(0, 0, W, H);
           vctx.strokeStyle = 'rgba(255,255,255,.85)'; vctx.lineWidth = 1;
           vctx.beginPath(); vctx.moveTo(gradStart.x, gradStart.y); vctx.lineTo(p.x, p.y); vctx.stroke();
@@ -9273,8 +10100,8 @@
           previewShape = {
             type: tool, x1: shapeStart.x, y1: shapeStart.y, x2: p.x, y2: p.y,
             stroke: toolColor(), width: toolSize(),
-            fill: $('pv-fill').checked ? toolColor() : 'transparent',
-            strokeOn: $('pv-stroke').checked
+            fill: ($('ps-vfill') && $('ps-vfill').checked) ? toolColor() : 'transparent',
+            strokeOn: ($('ps-vstroke') && $('ps-vstroke').checked)
           };
           drawPreview(); return;
         }
@@ -9291,24 +10118,50 @@
           strokeAt(l, last, q);
         }
         last = { x: last.x + dx * ((step*n)/seg), y: last.y + dy * ((step*n)/seg), p: p.p };
-        composite();
+        compositeStroke(l);
       }
 
       function onUp(e) {
         const l = active();
         if (!l) return;
+
+        // --- finish a selection gesture ---
+        if (selDrag && /^(selrect|seloval|lasso)$/.test(tool)) {
+          const d = selDrag; selDrag = null; drawing = false;
+          const tiny = Math.abs(d.x1 - d.x0) < 2 && Math.abs(d.y1 - d.y0) < 2;
+          if (tiny && tool !== 'lasso') { clearSelection(); banner('Selection cleared.'); return; }
+          const m = maskFromDraw(x => {
+            x.beginPath();
+            if (tool === 'selrect') x.rect(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1), Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
+            else if (tool === 'seloval') x.ellipse((d.x0 + d.x1) / 2, (d.y0 + d.y1) / 2, Math.abs(d.x1 - d.x0) / 2, Math.abs(d.y1 - d.y0) / 2, 0, 0, Math.PI * 2);
+            else { const q = d.pts; if (q.length < 3) return; x.moveTo(q[0].x, q[0].y); for (let i = 1; i < q.length; i++) x.lineTo(q[i].x, q[i].y); x.closePath(); }
+            x.fill();
+          });
+          selFromMask(m);
+          composite();
+          banner(sel ? 'Selected — painting is limited to this area.' : 'Selection cleared.');
+          return;
+        }
+        if (selMoveState && tool === 'selmove') {
+          selMoveState = null; drawing = false;
+          // NOTE: the float deliberately stays lifted so it can be dragged again.
+          // It's committed by dropSelection() on deselect / tool change / edit.
+          pushHistory(); renderLayerList(); composite();
+          return;
+        }
+
         if (tool === 'vedit') {
           if (drawing && vSel) { pushHistory(); renderLayerList(); }
           drawing = false;
           if (vSel) vSel.mode = null;
-          composite(); drawVectorHandles();
+          composite();
           return;
         }
         if (tool === 'gradient' && gradStart && drawing) {
           const p = pos(e);
           const g = l.ctx.createLinearGradient(gradStart.x, gradStart.y, p.x, p.y);
           g.addColorStop(0, toRGBA(fg));
-          g.addColorStop(1, ($('pg-tobg') && $('pg-tobg').checked) ? toRGBA(bg) : toRGBA({ ...fg, a: 0 }));
+          g.addColorStop(1, ($('ps-gtobg') && $('ps-gtobg').checked) ? toRGBA(bg) : toRGBA({ ...fg, a: 0 }));
           l.ctx.save();
           l.ctx.globalAlpha = toolAlpha() / Math.max(0.001, fg.a);
           l.ctx.fillStyle = g; l.ctx.fillRect(0, 0, W, H);
@@ -9337,6 +10190,7 @@
           }
           drawing = false; shapeStart = null; return;
         }
+        if (drawing && strokeScratch) { endStroke(l); composite(); }
         if (drawing && tool !== 'pen') { pushHistory(); renderLayerList(); }
         drawing = false; last = null; moveStart = null; moveSnapshot = null;
         cloneOffset = null;   // next clone stroke re-anchors from the source point
@@ -9346,7 +10200,7 @@
         const l = active();
         if (!l || penPts.length < 2) { penPts = []; previewShape = null; composite(); return; }
         const shape = { type:'path', pts: penPts.slice(), stroke: toolColor(), width: toolSize(),
-          strokeOn: $('pv-stroke').checked, fill: $('pv-fill').checked ? toolColor() : 'transparent', closed: $('pv-fill').checked };
+          strokeOn: ($('ps-vstroke') && $('ps-vstroke').checked), fill: ($('ps-vfill') && $('ps-vfill').checked) ? toolColor() : 'transparent', closed: ($('ps-vfill') && $('ps-vfill').checked) };
         if (l.kind === 'vector') { l.shapes.push(shape); renderVector(l); }
         else {
           const c = l.ctx; c.save();
@@ -9389,7 +10243,7 @@
           const kind = document.createElement('span');
           kind.className = 'layer-kind'; kind.textContent = l.kind === 'vector' ? 'VEC' : 'PIX';
           row.append(eye, th, nm, kind);
-          row.onclick = () => { activeId = l.id; vSel = null; renderLayerList(); syncLayerControls(); composite(); drawVectorHandles(); };
+          row.onclick = () => { activeId = l.id; vSel = null; renderLayerList(); syncLayerControls(); composite(); };
           box.appendChild(row);
         });
         syncLayerControls();
@@ -9498,22 +10352,34 @@
         view.addEventListener('pointercancel', onUp);
         view.addEventListener('dblclick', () => { if (tool === 'pen') finishPen(); });
 
-        document.querySelectorAll('#paint-rail button[data-ptool]').forEach(b => {
-          b.onclick = () => {
-            if (tool === 'pen' && penPts.length) finishPen();
-            tool = b.dataset.ptool;
-            vSel = null; vHover = null;
-            document.querySelectorAll('#paint-rail button').forEach(x => x.classList.remove('active'));
-            b.classList.add('active');
-            view.style.cursor = tool === 'picker' ? 'copy' : tool === 'move' ? 'move' : tool === 'vedit' ? 'default' : 'crosshair';
-            composite();
-            if (tool === 'vedit') {
-              const l = active();
-              if (l && l.kind !== 'vector') banner('Pick a vector layer (VEC) to edit its points.');
-              drawVectorHandles();
-            }
-          };
+        buildRail();
+
+        $('ps-tol').oninput = e => $('ps-tol-val').textContent = e.target.value + '%';
+        const selAll = () => { selFromMask(new Uint8Array(W * H).fill(1)); composite(); banner('Selected the whole canvas.'); };
+        const selNone = () => { clearSelection(); banner('Deselected.'); };
+        $('ps-sel-all').onclick = selAll;
+        $('ps-sel-none').onclick = selNone;
+        $('ps-sel-all2').onclick = selAll;
+        $('ps-sel-none2').onclick = selNone;
+        $('ps-sel-invert').onclick = () => { invertSelection(); banner('Selection inverted.'); };
+        $('ps-hard').oninput = e => $('ps-hard-val').textContent = e.target.value + '%';
+        $('ps-nib').oninput = e => $('ps-nib-val').textContent = e.target.value + '°';
+        $('ps-textsize').oninput = e => $('ps-textsize-val').textContent = e.target.value;
+        // Re-run magic select live when its settings change, so the slider is
+        // something you can feel rather than guess at.
+        ['ps-invert', 'ps-global'].forEach(id => {
+          const el = $(id);
+          if (el) el.onchange = () => { if (tool === 'magic' && lastMagic) { magicSelect(lastMagic.x, lastMagic.y); composite(); } };
         });
+        $('ps-tol').onchange = () => { if (tool === 'magic' && lastMagic) { magicSelect(lastMagic.x, lastMagic.y); composite(); } };
+        // text: share the 3D side's font list and uploader
+        syncFontList();
+        $('ps-font-upload').onclick = () => {
+          const b = document.getElementById('bld-text3d-upload');
+          if (b) { b.click(); setTimeout(syncFontList, 1500); }
+          else banner('Font upload lives on the 3D side — switch to 3D › Create › 3D Text.');
+        };
+        requestAnimationFrame(antsTick);
 
         document.querySelectorAll('#paint-tabs button[data-ptab]').forEach(b => {
           b.onclick = () => {
@@ -9529,9 +10395,7 @@
 
         $('ps-size').oninput = e => $('ps-size-val').textContent = e.target.value;
         $('ps-flow').oninput = e => $('ps-flow-val').textContent = e.target.value + '%';
-        $('pb-hard').oninput = e => $('pb-hard-val').textContent = e.target.value + '%';
         $('pb-space').oninput = e => $('pb-space-val').textContent = e.target.value + '%';
-        $('pb-nib').oninput = e => $('pb-nib-val').textContent = e.target.value + '°';
         document.querySelectorAll('#pb-shape .toggle-btn').forEach(b => b.onclick = () => {
           document.querySelectorAll('#pb-shape .toggle-btn').forEach(x => x.classList.remove('active'));
           b.classList.add('active');
@@ -9669,6 +10533,30 @@
             banner('Sent to Image → 3D.');
           }, 'image/png');
         };
+        $('pf-plane-w').oninput = e => $('pf-plane-w-val').textContent = e.target.value + ' mm';
+
+        // Wrap the artwork onto the currently selected 3D object as colour.
+        $('pf-to3d-tex').onclick = () => {
+          if (!window.ModelSmith3D || !window.ModelSmith3D.applyImageTexture) {
+            return banner("⚠️ The 3D side hasn't finished loading — try again in a moment.");
+          }
+          const url = flatten().toDataURL('image/png');
+          setMode('model');
+          // hand over once the 3D workspace is actually on screen
+          setTimeout(() => window.ModelSmith3D.applyImageTexture(url, { alpha: true }), 60);
+        };
+
+        // Drop the artwork in as a flat picture standing on the build plate.
+        $('pf-to3d-plane').onclick = () => {
+          if (!window.ModelSmith3D || !window.ModelSmith3D.createImagePlane) {
+            return banner("⚠️ The 3D side hasn't finished loading — try again in a moment.");
+          }
+          const mm = parseInt($('pf-plane-w').value) || 40;
+          const url = flatten().toDataURL('image/png');
+          setMode('model');
+          setTimeout(() => window.ModelSmith3D.createImagePlane(url, mm), 60);
+        };
+
         $('pf-clear').onclick = () => {
           if (!confirm('Clear all artwork? This cannot be undone.')) return;
           layers = []; layerSeq = 1;
@@ -9685,9 +10573,15 @@
           const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
           if (typing) return;
           const k = e.key.toLowerCase();
-          const pick = (t) => { const b = document.querySelector(`#paint-rail button[data-ptool="${t}"]`); if (b) b.click(); };
+          const pick = (t) => setTool(t);
           if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
           else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); }
+          else if ((e.ctrlKey || e.metaKey) && k === 'd') { e.preventDefault(); clearSelection(); banner('Deselected.'); }
+          else if ((e.ctrlKey || e.metaKey) && k === 'a') {
+            e.preventDefault();
+            const m = new Uint8Array(W * H).fill(1);
+            selFromMask(m); composite(); banner('Selected the whole canvas.');
+          }
           else if (k === 'b') pick('brush');
           else if (k === 'n') pick('pencil');
           else if (k === 'm') pick('marker');
@@ -9696,14 +10590,20 @@
           else if (k === 'g') pick('fill');
           else if (k === 'i') pick('picker');
           else if (k === 'v') pick('move');
+          else if (k === 't') pick('text');
+          else if (k === 's') pick('selrect');
+          else if (k === 'w') pick('magic');
           else if (k === 'x') { const t = fg; fg = bg; bg = t; syncColorUI(); }
-          else if (k === 'escape' && penPts.length) { penPts = []; previewShape = null; composite(); }
+          else if (k === 'escape') {
+            if (penPts.length) { penPts = []; previewShape = null; composite(); }
+            else if (sel) { clearSelection(); banner('Deselected.'); }
+          }
           else if ((k === 'delete' || k === 'backspace') && tool === 'vedit' && vSel) {
             const l = active();
             if (l && l.kind === 'vector' && l.shapes[vSel.shapeIndex]) {
               e.preventDefault();
               l.shapes.splice(vSel.shapeIndex, 1);
-              vSel = null; renderVector(l); composite(); drawVectorHandles();
+              vSel = null; renderVector(l); composite();
               pushHistory(); renderLayerList(); banner('Shape deleted.');
             }
           }
@@ -9740,7 +10640,7 @@
           history = []; histIndex = -1;
           pushHistory();
         }
-        fitZoom(); renderLayerList(); composite();
+        fitZoom(); renderLayerList(); composite(); syncHud(); syncFontList();
       }
 
       // boot
