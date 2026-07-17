@@ -1,9 +1,9 @@
 // ModelSmith service worker — caches the app shell so it launches offline.
 // Bumping CACHE_NAME on each release makes browsers drop the old cache and
 // pull the new files (see the 'activate' handler below).
-const CACHE_NAME = 'modelsmith-v1.4.5-font1';
+const CACHE_NAME = 'modelsmith-v1.4.8';
 const APP_SHELL = [
-  './ModelSmith.html',
+  './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -38,7 +38,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
           return res;
         })
-        .catch(() => caches.match(req).then((res) => res || caches.match('./ModelSmith.html')))
+        .catch(() => caches.match(req).then((res) => res || caches.match('./index.html')))
     );
     return;
   }
