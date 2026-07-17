@@ -9000,7 +9000,7 @@
         calligraphy: '<path d="M3 21c4-1 7-4 9-8l6-11"/><path d="M18 2l3 2-4 9-3-2Z"/>',
         spray: '<circle cx="7" cy="7" r=".7"/><circle cx="12" cy="5" r=".7"/><circle cx="17" cy="8" r=".7"/><circle cx="9" cy="12" r=".7"/><circle cx="14" cy="11" r=".7"/><circle cx="19" cy="14" r=".7"/><circle cx="6" cy="17" r=".7"/><circle cx="11" cy="18" r=".7"/><circle cx="16" cy="19" r=".7"/>',
         eraser: '<path d="m19 20-9.5.02L3 13.5a2 2 0 0 1 0-2.83l7.6-7.6a2 2 0 0 1 2.83 0l6.36 6.37a2 2 0 0 1 0 2.83L13 18"/><path d="M21 20h-9"/>',
-        smudge: '<path d="M11 21c-3.5 0-6-2-6-4.5S7 12 9.5 12h1"/><path d="M10 12V5.5A1.5 1.5 0 0 1 11.5 4h0A1.5 1.5 0 0 1 13 5.5V12"/><path d="M13 8.5a1.5 1.5 0 0 1 3 0V13"/><path d="M16 10a1.5 1.5 0 0 1 3 0v6c0 3-2.5 5-5.5 5H11"/>',
+        smudge: '<path d="M15.5 4.5a4.5 4.5 0 0 1 0 6.4l-3.2 3.2a1 1 0 0 1-1.4 0L8.3 11.5a1 1 0 0 1 0-1.4l3.2-3.2a4.5 4.5 0 0 1 4-2.4Z" opacity=".95"/><path d="M9 15.5c-2 1-4 1.6-6 1.8" opacity=".75"/><path d="M10.5 18c-2.5 1-5 1.7-7.5 2" opacity=".5"/><path d="M12.5 20.3c-2.5.6-5 1-7 1.2" opacity=".3"/>',
         blurbrush: '<circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8" opacity=".45" stroke-dasharray="2 3"/>',
         dodge: '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
         burn: '<path d="M12 3s5 5 5 9.5a5 5 0 0 1-10 0C7 8 12 3 12 3Z"/><path d="M12 21c-2 0-3.5-1.2-3.5-3 0-2 3.5-4 3.5-4s3.5 2 3.5 4c0 1.8-1.5 3-3.5 3Z" opacity=".5"/>',
@@ -9539,12 +9539,14 @@
           if (g.o) {
             ctx.save();
             ctx.translate(x + cursor, y);
-            // No axis flip here: opentypeToThreeFont already negates Y when it
-            // converts, so the stored outline is in canvas space (Y-down) and
-            // glyphPath reads it verbatim. Flipping again — or negating inside the
-            // path walker — desynchronises each curve's controls from its
-            // endpoints, which shatters round glyphs (e, o, s) while leaving
-            // straight ones (T, l, i) looking fine.
+            // Stored outlines are Y-up (font convention, as three.js expects); the
+            // canvas is Y-down, so the axis is flipped once here at draw time.
+            // This is a context transform, so it mirrors the finished path and
+            // cannot distort it. Note the distinction: negating Y per-coordinate
+            // INSIDE glyphPath would desynchronise each curve's controls from its
+            // endpoints and shatter round glyphs — that's a different bug, and why
+            // the flip belongs here and nowhere else.
+            ctx.scale(1, -1);
             ctx.fill(glyphPath(g, upm, size));
             ctx.restore();
           }
@@ -11434,7 +11436,7 @@
       document.querySelectorAll('#mode-switch .mode-btn').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 
       return { setMode, addLayer, undo, redo, init,
-               _history: () => history, _histIndex: () => histIndex, _jump: jumpToStep, _liveText: () => liveText, _setTool: setTool, _cursorPos: () => cursorPos, _floatSel: () => floatSel, _sel: () => sel, _tool: () => tool, _cursorPos: () => cursorPos, _layers: () => layers, _setTool: (t) => setTool(t), _floatSel: () => floatSel };
+               _history: () => history, _histIndex: () => histIndex, _jump: jumpToStep, _liveText: () => liveText, _setTool: setTool, _icon: (k) => svg(k), _cursorPos: () => cursorPos, _floatSel: () => floatSel, _sel: () => sel, _tool: () => tool, _cursorPos: () => cursorPos, _layers: () => layers, _setTool: (t) => setTool(t), _floatSel: () => floatSel };
     })();
     window.Paint = Paint;
 
