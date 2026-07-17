@@ -2,7 +2,7 @@
   "name": "ModelSmith",
   "short_name": "ModelSmith",
   "description": "ModelSmith — solid modeler (v1.4.2)",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "start_url": "/ModelSmith.github.io/index.html",
   "scope": "/ModelSmith.github.io/",
   "display": "standalone",
