@@ -1,8 +1,8 @@
 {
   "name": "ModelSmith",
   "short_name": "ModelSmith",
-  "description": "ModelSmith \u2014 CAD suite (v1.4.8)",
-  "version": "1.4.8",
+  "description": "ModelSmith \u2014 CAD suite (v1.4.9)",
+  "version": "1.4.9",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
