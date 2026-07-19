@@ -38,6 +38,123 @@
     }
     console.log('%cModelSmith ' + window.MODELSMITH_VERSION, 'color:#c2895f; font-weight:bold;');
   </script>
+  <script>
+    // Self-contained PSD parser (RGB / 8-bit, RAW + RLE). Lets the Paint studio
+    // import layered Photoshop files offline, without any external library.
+    // Minimal PSD parser — reads layers from RGB/8-bit PSD files.
+    // Supports RAW (0) and RLE/PackBits (1) channel compression.
+    function parsePSD(buffer) {
+      const dv = new DataView(buffer);
+      let o = 0;
+      const u8 = (n) => { const v = []; for (let i=0;i<n;i++) v.push(dv.getUint8(o++)); return v; };
+      const u16 = () => { const v = dv.getUint16(o); o += 2; return v; };
+      const u32 = () => { const v = dv.getUint32(o); o += 4; return v; };
+      const i16 = () => { const v = dv.getInt16(o); o += 2; return v; };
+
+      // ── Header ──
+      const sig = String.fromCharCode(...u8(4));
+      if (sig !== '8BPS') throw new Error('Not a PSD file');
+      const version = u16();               // 1 = PSD, 2 = PSB
+      o += 6;                               // reserved
+      const channels = u16();
+      const height = u32();
+      const width = u32();
+      const depth = u16();                  // bits per channel
+      const mode = u16();                   // 3 = RGB
+      if (depth !== 8) throw new Error('Only 8-bit PSD files are supported (' + depth + '-bit given)');
+
+      // ── Colour mode data ──
+      const cmLen = u32(); o += cmLen;
+      // ── Image resources ──
+      const irLen = u32(); o += irLen;
+
+      // ── Layer & mask info ──
+      const lmLen = u32();
+      const lmEnd = o + lmLen;
+      const layerInfoLen = u32();
+      let layerCount = i16();
+      if (layerCount < 0) layerCount = -layerCount;   // negative => has alpha for merged
+
+      const layers = [];
+      for (let i = 0; i < layerCount; i++) {
+        const top = dv.getInt32(o); o+=4;
+        const left = dv.getInt32(o); o+=4;
+        const bottom = dv.getInt32(o); o+=4;
+        const right = dv.getInt32(o); o+=4;
+        const nch = u16();
+        const chInfo = [];
+        for (let c=0;c<nch;c++){ const id = i16(); const len = u32(); chInfo.push({id, len}); }
+        const blendSig = String.fromCharCode(...u8(4));  // '8BIM'
+        const blendKey = String.fromCharCode(...u8(4));
+        const opacity = dv.getUint8(o++);
+        const clipping = dv.getUint8(o++);
+        const flags = dv.getUint8(o++);
+        o++; // filler
+        const extraLen = u32();
+        const extraEnd = o + extraLen;
+        // mask
+        const maskLen = u32(); o += maskLen;
+        // blending ranges
+        const brLen = u32(); o += brLen;
+        // name (pascal, padded to 4)
+        const nameLen = dv.getUint8(o++);
+        let name = '';
+        for (let k=0;k<nameLen;k++) name += String.fromCharCode(dv.getUint8(o++));
+        const pad = (nameLen + 1) % 4; if (pad) o += (4 - pad);
+        // unicode name may be in extra; skip to extraEnd
+        o = extraEnd;
+        layers.push({ top,left,bottom,right, nch, chInfo, blendKey, opacity, flags, name, width: right-left, height: bottom-top });
+      }
+
+      // ── Channel image data per layer ──
+      const BLEND = { 'norm':'source-over','mul ':'multiply','scrn':'screen','over':'overlay','dark':'darken','lite':'lighten','hLit':'hard-light','sLit':'soft-light','diff':'difference','smud':'exclusion','hue ':'hue','sat ':'saturation','colr':'color','lum ':'luminosity','mul':'multiply' };
+
+      layers.forEach(layer => {
+        const lw = layer.width, lh = layer.height;
+        if (lw <= 0 || lh <= 0) { layer.canvas = null; return; }
+        // per-channel decoded arrays keyed by channel id (0=R,1=G,2=B,-1=A)
+        const chData = {};
+        layer.chInfo.forEach(ci => {
+          const comp = u16();               // 0 raw, 1 RLE
+          const nBytes = lw * lh;
+          const out = new Uint8Array(nBytes);
+          if (comp === 0) {
+            for (let k=0;k<nBytes;k++) out[k] = dv.getUint8(o++);
+          } else if (comp === 1) {
+            // RLE: row byte-counts first (one u16 per row), then packbits data
+            const counts = [];
+            for (let r=0;r<lh;r++) counts.push(u16());
+            let p = 0;
+            for (let r=0;r<lh;r++){
+              let n = counts[r]; let filled = 0; const rowStart = r*lw;
+              while (n > 0){
+                const hdr = dv.getInt8(o++); n--;
+                if (hdr >= 0){ const cnt = hdr+1; for (let k=0;k<cnt;k++){ out[rowStart+filled++] = dv.getUint8(o++); n--; } }
+                else if (hdr !== -128){ const cnt = 1-hdr; const val = dv.getUint8(o++); n--; for (let k=0;k<cnt;k++) out[rowStart+filled++] = val; }
+              }
+            }
+          } else { throw new Error('Unsupported channel compression ' + comp); }
+          chData[ci.id] = out;
+        });
+        // assemble RGBA
+        const cv = { width: lw, height: lh, data: new Uint8ClampedArray(lw*lh*4) };
+        const R = chData[0], G = chData[1], B = chData[2], A = chData[-1];
+        for (let k=0;k<lw*lh;k++){
+          cv.data[k*4]   = R ? R[k] : 0;
+          cv.data[k*4+1] = G ? G[k] : 0;
+          cv.data[k*4+2] = B ? B[k] : 0;
+          cv.data[k*4+3] = A ? A[k] : 255;
+        }
+        layer.rgba = cv;
+        layer.blend = BLEND[layer.blendKey] || 'source-over';
+        layer.hidden = (layer.flags & 2) !== 0;
+      });
+
+      return { width, height, layers };
+    }
+    window.parsePSD = parsePSD;
+
+  </script>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -662,6 +779,23 @@
     .layer-mask-chip { width: 20px; height: 20px; border-radius: 3px; flex-shrink: 0;
       border: 1px solid var(--line); cursor: pointer; margin-left: 2px; }
     .layer-mask-chip.editing { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    /* Layer groups: folder header row + indented children. */
+    .layer-group-row { display: flex; align-items: center; gap: 5px; padding: 5px 6px;
+      border-radius: 4px; cursor: pointer; border: 1px solid transparent; }
+    .layer-group-row:hover { background: var(--s-750); }
+    .layer-group-row.active { background: var(--accent-dim); border-color: var(--accent); }
+    .layer-group-row.hidden-layer .layer-name { opacity: .4; text-decoration: line-through; }
+    .layer-group-chevron { background: none; border: none; color: var(--text-muted); cursor: pointer;
+      padding: 2px; display: flex; flex-shrink: 0; transition: transform .12s ease; }
+    .layer-group-chevron svg { width: 12px; height: 12px; }
+    .layer-group-chevron.collapsed { transform: rotate(-90deg); }
+    .layer-group-icon { display: flex; flex-shrink: 0; color: var(--accent); }
+    .layer-group-icon svg { width: 15px; height: 15px; }
+    .layer-in-group { margin-left: 14px; border-left: 2px solid var(--line); padding-left: 6px; }
+    .layer-group-toggle { background: none; border: 1px solid var(--line); color: var(--text-muted);
+      cursor: pointer; border-radius: 3px; font-size: 11px; line-height: 1; padding: 1px 4px;
+      flex-shrink: 0; margin-left: 2px; }
+    .layer-group-toggle:hover { color: var(--accent); border-color: var(--accent); }
     .check-row { display: flex; align-items: center; gap: 7px; font-size: 11px;
       color: var(--text-dim); cursor: pointer; margin-bottom: 5px; }
     .check-row input { accent-color: var(--accent); }
@@ -1104,6 +1238,10 @@
           <button class="hud-seg-btn" id="gizmo-scale" title="Scale">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 3 21"/><path d="M21 3h-7m7 0v7M3 21h7m-7 0v-7"/></svg>
             Scale
+          </button>
+          <button class="hud-seg-btn" id="gizmo-aspect" title="Keep proportions — even scaling, square sketches (same as holding Shift)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 9h16M9 4v16"/></svg>
+            Lock ratio
           </button>
         </div>
 
@@ -1752,6 +1890,7 @@
           <label class="hud-check"><input type="checkbox" id="ps-vfill"> Fill</label>
           <label class="hud-check"><input type="checkbox" id="ps-vstroke" checked> Stroke</label>
           <label class="hud-check" title="Lock lines to horizontal / vertical / 45°, and boxes to square"><input type="checkbox" id="ps-vsnap"> Snap ∠</label>
+          <label class="hud-check" title="Keep shapes even — squares, circles, 45° lines (same as holding Shift)"><input type="checkbox" id="ps-aspect"> Lock ratio</label>
           <select id="ps-vsnap-step" class="hud-select" title="Angle increment when snapping is on" style="width:auto;">
             <option value="45">45°</option>
             <option value="30">30°</option>
@@ -1837,6 +1976,7 @@
           <span>Layers</span>
           <span style="display:flex; gap:4px;">
             <button class="mini-btn icon-only" id="pl-add" title="New layer" style="padding:4px 6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="mini-btn icon-only" id="pl-add-group" title="New group" style="padding:4px 6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h5l2 3h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg></button>
             <button class="mini-btn icon-only" id="pl-dup" title="Duplicate layer" style="padding:4px 6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
             <button class="mini-btn icon-only danger" id="pl-del" title="Delete layer" style="padding:4px 6px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m1 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
           </span>
@@ -2082,10 +2222,13 @@
       let clipboard = null;   // stored geometry/material for copy → paste
       let lastImage3DFile = null;   // remembers the last image for Image→3D re-generation
       let multiSelectMode = false;   // when on, plain clicks add/remove from the selection
+      let shiftHeld = false;         // Shift key currently down (aspect-lock while sketching/scaling)
+      let aspectLock3D = false;      // touch toggle equivalent of holding Shift
       let groupPivot = null;         // invisible anchor the gizmo drives when 2+ objects are selected
       let snapEnabled = false;       // face-snapping: dragged objects snap flush to others
       let centerSnapEnabled = false; // centre/inline snapping: line up object middles
       let _dragTruePos = null;       // true unsnapped position tracked during a gizmo drag
+      let _scaleStart = null;        // object scale captured at drag start, for Shift-uniform scaling
       const SNAP_DIST = 3;           // world-mm proximity that triggers a snap
       let pivotPrevMatrix = null;    // last pivot world matrix, to compute per-frame deltas
       let movePivot = null;          // invisible, never-rotated proxy the Move gizmo drives —
@@ -2208,8 +2351,13 @@
           if (e.value) {
             // starting a drag — seed the true position from where the object is now
             _dragTruePos = moveGizmoTarget ? moveGizmoTarget.position.clone() : null;
+            // Remember the scale at grab time so Shift-uniform scaling can measure
+            // which axis the user pulled and mirror it onto the others.
+            const so = transformControl.object;
+            _scaleStart = so ? so.scale.clone() : null;
           } else {
             _dragTruePos = null;   // drag ended; snapped position (if any) is committed
+            _scaleStart = null;
             saveHistory();
           }
         });
@@ -2243,6 +2391,24 @@
             movePivotLastPos.copy(movePivot.position);
           } else if ((snapEnabled || centerSnapEnabled) && transformControl.getMode() === 'translate') {
             applyObjectSnap();
+          }
+          // Shift-uniform scaling: in scale mode, when Shift is held (or the toggle is
+          // on), whichever axis the user drags is mirrored onto the other two so the
+          // object grows evenly and keeps its proportions.
+          if (transformControl.getMode() === 'scale' && (shiftHeld || aspectLock3D) && _scaleStart) {
+            const o = transformControl.object;
+            if (o && o.scale) {
+              // Find the axis that changed most relative to its starting value.
+              const rx = o.scale.x / (_scaleStart.x || 1);
+              const ry = o.scale.y / (_scaleStart.y || 1);
+              const rz = o.scale.z / (_scaleStart.z || 1);
+              // Pick the ratio furthest from 1 — that's the one the user is pulling.
+              let r = rx;
+              if (Math.abs(rz - 1) > Math.abs(r - 1)) r = rz;
+              if (Math.abs(ry - 1) > Math.abs(rx - 1) && Math.abs(ry - 1) > Math.abs(rz - 1)) r = ry;
+              o.scale.set(_scaleStart.x * r, _scaleStart.y * r, _scaleStart.z * r);
+              o.updateMatrixWorld(true);
+            }
           }
         });
         scene.add(transformControl);
@@ -2284,6 +2450,11 @@
         renderer.domElement.addEventListener('pointermove', onPointerMove);
         renderer.domElement.addEventListener('pointerup', onPointerUp);
         window.addEventListener('keydown', onKeyDown);
+        // Track Shift globally so sketch shapes and the scale gizmo can lock aspect
+        // ratio while it's held (mirrors the paint studio's Shift behaviour).
+        window.addEventListener('keydown', e => { if (e.key === 'Shift') shiftHeld = true; });
+        window.addEventListener('keyup',   e => { if (e.key === 'Shift') shiftHeld = false; });
+        window.addEventListener('blur',    () => { shiftHeld = false; });
         renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 
         setupDOMEvents(); 
@@ -4812,15 +4983,19 @@
         scene.remove(root); objects = objects.filter(o => o !== root);
         created.forEach(m => { setEmissive(m, 0x000000); m.castShadow = true; m.receiveShadow = true; scene.add(m); objects.push(m); });
 
-        // Leave the user in a clean, movable state: disarm the slicer, switch to the
-        // Move tool, and attach the gizmo to the first new piece so it can be dragged
-        // straight away (previously the gizmo could stay detached or in the wrong
-        // mode, so the piece looked stuck).
+        // Leave the user in a clean, movable state: disarm the slicer, switch back to
+        // the Select tool (there is no 'move' tool — Select is the mode where the gizmo
+        // drags objects), force the gizmo into translate mode, and attach it to the
+        // first new piece so it can be dragged straight away.
         sliceState.armed = false; sliceState.planeHelper.visible = false;
         document.getElementById('bld-slice-arm').classList.remove('active');
         selected = [created[0]];
         refreshSelectionVisual();
-        setActiveTool('move');
+        setActiveTool('select');
+        if (transformControl.setMode) transformControl.setMode('translate');
+        ['gizmo-translate','gizmo-rotate','gizmo-scale'].forEach(id => {
+          const el = document.getElementById(id); if (el) el.classList.toggle('active', id === 'gizmo-translate');
+        });
         attachGizmoToSelection();
         saveHistory(); updateStatus(); updateFloatingHUD();
         banner(`Slice complete — ${created.length} piece(s) created.`);
@@ -6466,6 +6641,10 @@
           if (tool === 'line' && activeSketch.tempPoints.length === 1) focusDimEntry();
         } 
         else if (tool === 'rect') {
+          // Second corner: apply aspect-lock (square) if Shift is held or the toggle is on.
+          if (activeSketch.tempPoints.length === 1 && (shiftHeld || aspectLock3D)) {
+            pt = squareSketchPt(activeSketch.tempPoints[0], pt);
+          }
           activeSketch.tempPoints.push(pt);
           if (activeSketch.tempPoints.length === 1) { focusDimEntry(); }
           else if (activeSketch.tempPoints.length === 2) {
@@ -6506,9 +6685,20 @@
         splitAllIntersections();
       }
 
+      // Force a sketch point to make a square relative to the anchor (equal |dx|,|dy|),
+      // used when Shift is held or the aspect-lock toggle is on while drawing a rect.
+      function squareSketchPt(anchor, pt) {
+        const dx = pt.x - anchor.x, dy = pt.y - anchor.y;
+        const s = Math.max(Math.abs(dx), Math.abs(dy));
+        return new THREE.Vector2(anchor.x + Math.sign(dx || 1) * s, anchor.y + Math.sign(dy || 1) * s);
+      }
       function handleSketchMove() {
         let pt = getSketchPt2D(); if(!pt) return;
-        pt = snapPoint(pt); 
+        pt = snapPoint(pt);
+        // Aspect-lock: while drawing a rectangle with Shift (or the toggle), keep it square.
+        if (activeSketch.tool === 'rect' && activeSketch.tempPoints.length === 1 && (shiftHeld || aspectLock3D)) {
+          pt = squareSketchPt(activeSketch.tempPoints[0], pt);
+        }
         renderSegments(pt);
         updateDimOverlay(pt);
       }
@@ -8624,6 +8814,12 @@
         document.getElementById('gizmo-translate').onclick=()=>setGizmoMode('translate','gizmo-translate');
         document.getElementById('gizmo-rotate').onclick=()=>setGizmoMode('rotate','gizmo-rotate');
         document.getElementById('gizmo-scale').onclick=()=>setGizmoMode('scale','gizmo-scale');
+        const aspBtn = document.getElementById('gizmo-aspect');
+        if (aspBtn) aspBtn.onclick = () => {
+          aspectLock3D = !aspectLock3D;
+          aspBtn.classList.toggle('active', aspectLock3D);
+          banner(aspectLock3D ? 'Lock ratio on — even scaling and square sketches. (Or hold Shift.)' : 'Lock ratio off.');
+        };
         document.getElementById('hud-apply-size').onclick=applyHUDSize;
         bindHudLiveFields();
 
@@ -10353,9 +10549,34 @@
           id: 'L' + (layerSeq++), name: name || `Layer ${layerSeq - 1}`,
           canvas: c, ctx: c.getContext('2d', { willReadFrequently: true }),
           visible: true, opacity: 1, blend: 'source-over',
-          kind: kind || 'raster', shapes: []
+          kind: kind || 'raster', shapes: [], groupId: null
         };
         return l;
+      }
+      // Layer groups are folder entries that live inline in the `layers` array,
+      // marked with kind:'group'. Real layers point at their parent via groupId.
+      // A group carries its own visibility/opacity/collapsed state; children inherit
+      // visibility and multiply their opacity by the group's when compositing.
+      function makeGroup(name) {
+        return {
+          id: 'G' + (layerSeq++), name: name || 'Group',
+          kind: 'group', visible: true, opacity: 1, collapsed: false, groupId: null
+        };
+      }
+      // The group entry a layer belongs to (or null). Groups themselves aren't nested.
+      function layerGroupOf(l) {
+        if (!l || !l.groupId) return null;
+        return layers.find(x => x.kind === 'group' && x.id === l.groupId) || null;
+      }
+      // Effective visibility/opacity fold in the parent group's state.
+      function effVisible(l) {
+        if (!l.visible) return false;
+        const g = layerGroupOf(l);
+        return g ? g.visible : true;
+      }
+      function effOpacity(l) {
+        const g = layerGroupOf(l);
+        return l.opacity * (g ? g.opacity : 1);
       }
       const active = () => layers.find(l => l.id === activeId) || null;
 
@@ -10375,8 +10596,9 @@
         vctx.setTransform(1, 0, 0, 1, 0, 0);
         vctx.clearRect(0, 0, W, H);
         layers.forEach(l => {
-          if (!l.visible || l.opacity <= 0) return;
-          vctx.globalAlpha = l.opacity;
+          if (l.kind === 'group') return;           // folder entries don't draw
+          if (!effVisible(l) || effOpacity(l) <= 0) return;
+          vctx.globalAlpha = effOpacity(l);
           vctx.globalCompositeOperation = l.blend || 'source-over';
           if (l.mask) {
             // Layer has a mask: it hides by LUMINANCE (black hides, white reveals),
@@ -10844,14 +11066,20 @@
       function snapshot() {
         return {
           W, H, activeId,
-          layers: layers.map(l => ({
-            id: l.id, name: l.name, visible: l.visible, opacity: l.opacity,
-            blend: l.blend, kind: l.kind,
-            shapes: JSON.parse(JSON.stringify(l.shapes || [])),
-            texts: JSON.parse(JSON.stringify(l.texts || [])),
-            mask: (l._realCanvas || l.mask) ? (l.mask ? l.mask.toDataURL() : null) : null,
-            data: layerPNG(l)
-          }))
+          layers: layers.map(l => {
+            if (l.kind === 'group') {
+              return { id: l.id, name: l.name, visible: l.visible, opacity: l.opacity,
+                       kind: 'group', collapsed: !!l.collapsed };
+            }
+            return {
+              id: l.id, name: l.name, visible: l.visible, opacity: l.opacity,
+              blend: l.blend, kind: l.kind, groupId: l.groupId || null,
+              shapes: JSON.parse(JSON.stringify(l.shapes || [])),
+              texts: JSON.parse(JSON.stringify(l.texts || [])),
+              mask: (l._realCanvas || l.mask) ? (l.mask ? l.mask.toDataURL() : null) : null,
+              data: layerPNG(l)
+            };
+          })
         };
       }
       function pushHistory(label) {
@@ -11036,9 +11264,17 @@
         let pending = snap.layers.length;
         const done = () => { if (gen === restoreGen && --pending === 0) { composite(); resetThumbBaseline(); if (onReady) onReady(); } };
         layers = snap.layers.map(s => {
+          if (s.kind === 'group') {
+            // Group folder entry — no pixels to load, so count it done immediately.
+            const g = makeGroup(s.name);
+            g.id = s.id; g.visible = s.visible; g.opacity = s.opacity; g.collapsed = !!s.collapsed;
+            Promise.resolve().then(done);
+            return g;
+          }
           const l = makeLayer(s.name, s.kind);
           l.id = s.id; l.visible = s.visible; l.opacity = s.opacity;
           l.blend = s.blend; l.shapes = s.shapes || []; l.texts = s.texts || [];
+          l.groupId = s.groupId || null;
           const img = new Image();
           img.onload = () => {
             if (gen === restoreGen) {
@@ -11431,6 +11667,8 @@
       let drawing = false, last = null, dist = 0;
       let shapeStart = null, previewShape = null;
       let vSnapEnabled = false;   // vector angle-snap: lock lines/boxes to 0/45/90°
+      let aspectLock = false;     // toggle button; when on (or Shift held) shapes keep
+                                  // a locked aspect — squares, circles, 45° lines
       // Shapes drawn by dragging a box (or a line, for arrow)
       const DRAG_SHAPES = /^(line|rect|ellipse|triangle|hexagon|polygon|star|arrow)$/;
 
@@ -11440,26 +11678,31 @@
       // held key so it works on a touchscreen. Lines snap to 8 directions; boxes and
       // other shapes snap to a square (equal width/height) when near the diagonal,
       // which is what keeps circles round and squares square.
-      function snapAngle(start, end, kind) {
-        if (!vSnapEnabled) return end;
+      // `lock` (Shift held or the aspect-lock toggle) forces the constraint on even
+      // when angle-snap is off: lines snap to 45° steps, boxes/ellipses become
+      // perfect squares/circles.
+      function snapAngle(start, end, kind, lock) {
+        const forced = lock || aspectLock;
+        if (!vSnapEnabled && !forced) return end;
         const dx = end.x - start.x, dy = end.y - start.y;
         if (dx === 0 && dy === 0) return end;
         if (kind === 'line' || kind === 'arrow') {
           const ang = Math.atan2(dy, dx);
           // Increment is user-selectable: 45° gives the 8 cardinals/diagonals,
           // 30° adds the isometric angles, 15° is fine enough for gentle slopes.
-          const deg = parseInt($('ps-vsnap-step') ? $('ps-vsnap-step').value : 45) || 45;
+          // A hard lock always uses 45° so a held Shift gives clean diagonals.
+          const deg = forced ? 45 : (parseInt($('ps-vsnap-step') ? $('ps-vsnap-step').value : 45) || 45);
           const step = (deg * Math.PI) / 180;
           const snapped = Math.round(ang / step) * step;
           const len = Math.hypot(dx, dy);
           return { x: start.x + Math.cos(snapped) * len, y: start.y + Math.sin(snapped) * len,
                    p: end.p };
         }
-        // box-like shapes: if the drag is close to square, force it square so
-        // ellipses become circles and rectangles become squares
+        // box-like shapes. With a hard lock, always force a perfect square/circle.
+        // Otherwise (angle-snap only) force it just when the drag is already near-square.
         const ax = Math.abs(dx), ay = Math.abs(dy);
         const ratio = Math.min(ax, ay) / (Math.max(ax, ay) || 1);
-        if (ratio > 0.8) {
+        if (forced || ratio > 0.8) {
           const s = Math.max(ax, ay);
           return { x: start.x + Math.sign(dx || 1) * s, y: start.y + Math.sign(dy || 1) * s,
                    p: end.p };
@@ -11688,7 +11931,15 @@
       }
 
       function onDown(e) {
-        const l = active(); if (!l) return;
+        let l = active();
+        // If a group folder is selected, painting has no target — hop to the group's
+        // topmost real layer (or warn if it's empty) so a stroke still lands somewhere.
+        if (l && l.kind === 'group') {
+          const child = [...layers].reverse().find(x => x.kind !== 'group' && x.groupId === l.id);
+          if (child) { activeId = child.id; l = child; renderLayerList(); syncLayerControls(); }
+          else { banner('This group is empty — add or move a layer into it first.'); return; }
+        }
+        if (!l) return;
         // On touch/pen, stop the browser running its own gesture (scroll, long-press
         // selection, iOS magnifier) in parallel with our drag — that parallel handling
         // is what made shapes "dodge" the finger. Mouse is unaffected.
@@ -12185,7 +12436,7 @@
           return;
         }
         if (DRAG_SHAPES.test(tool)) {
-          const e2 = snapAngle(shapeStart, p, tool);
+          const e2 = snapAngle(shapeStart, p, tool, e && e.shiftKey);
           previewShape = {
             type: tool, x1: shapeStart.x, y1: shapeStart.y, x2: e2.x, y2: e2.y,
             sides: parseInt($('ps-sides') ? $('ps-sides').value : 5) || 5,
@@ -12308,61 +12559,119 @@
       function renderLayerList() {
         const box = $('layer-list'); if (!box) return;
         box.innerHTML = '';
+        // Walk top-to-bottom in display order (reverse of paint order). Group headers
+        // render as folder rows; their children render indented directly beneath and
+        // are hidden when the group is collapsed.
         [...layers].reverse().forEach(l => {
-          const row = document.createElement('div');
-          row.className = 'layer-row' + (l.id === activeId ? ' active' : '') + (l.visible ? '' : ' hidden-layer');
-          const eye = document.createElement('button');
-          eye.className = 'layer-eye';
-          eye.innerHTML = l.visible
-            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'
-            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.2A10 10 0 0 1 12 4c6 0 10 8 10 8a18 18 0 0 1-2.3 3.2M6.6 6.6A17 17 0 0 0 2 12s4 8 10 8a9.7 9.7 0 0 0 5.4-1.6"/><path d="m2 2 20 20"/></svg>';
-          eye.onclick = (ev) => { ev.stopPropagation(); l.visible = !l.visible; composite(); renderLayerList(); saveSoon(); };
-          const th = document.createElement('canvas');
-          th.className = 'layer-thumb'; th.width = 26; th.height = 26;
-          const tc = th.getContext('2d');
-          tc.drawImage(l.canvas, 0, 0, 26, 26);
-          const nm = document.createElement('div');
-          nm.className = 'layer-name'; nm.textContent = l.name;
-          nm.ondblclick = (ev) => {
-            ev.stopPropagation();
-            const v = prompt('Layer name', l.name);
-            if (v) { l.name = v; renderLayerList(); saveSoon(); }
-          };
-          const kind = document.createElement('span');
-          kind.className = 'layer-kind'; kind.textContent = l.kind === 'vector' ? 'VEC' : 'PIX';
-          row.append(eye, th, nm, kind);
-          // Mask indicator: when a layer has a mask, show a small mask thumbnail so
-          // it's obvious the layer is masked. It highlights while you're editing it,
-          // and clicking it toggles mask editing for that layer.
-          if (l.mask) {
-            const mth = document.createElement('canvas');
-            mth.className = 'layer-mask-chip' + (maskEditing && l.id === activeId ? ' editing' : '');
-            mth.width = 20; mth.height = 20;
-            mth.title = (maskEditing && l.id === activeId) ? 'Editing mask — click to stop' : 'Layer mask — click to edit';
-            const mc = mth.getContext('2d');
-            // checkerboard so a mostly-white mask is still visibly a mask
-            mc.fillStyle = '#3a3f47'; mc.fillRect(0,0,20,20);
-            mc.fillStyle = '#2a2e35';
-            for (let yy=0; yy<20; yy+=5) for (let xx=0; xx<20; xx+=5) if (((xx+yy)/5)%2) mc.fillRect(xx,yy,5,5);
-            mc.drawImage(l.mask, 0, 0, 20, 20);
-            mth.onclick = (ev) => {
-              ev.stopPropagation();
-              if (l.id !== activeId) { activeId = l.id; renderLayerList(); syncLayerControls(); composite(); }
-              toggleMaskPaint();
-            };
-            row.append(mth);
-          }
-          row.onclick = () => {
-            // If we were editing another layer's mask, restore its real canvas first
-            // so the swap can't leak onto the wrong layer.
-            exitMaskEdit();
-            if (xform) commitTransform();
-            activeId = l.id; vSel = null; renderLayerList(); syncLayerControls(); composite();
-          };
-          box.appendChild(row);
+          if (l.kind === 'group') { box.appendChild(buildGroupRow(l)); return; }
+          // Skip children of a collapsed group.
+          const g = layerGroupOf(l);
+          if (g && g.collapsed) return;
+          box.appendChild(buildLayerRow(l, !!g));
         });
         syncLayerControls();
         syncMaskButton();
+      }
+
+      // A folder row: collapse chevron, eye, folder icon, name, child count.
+      function buildGroupRow(g) {
+        const row = document.createElement('div');
+        row.className = 'layer-group-row' + (g.id === activeId ? ' active' : '') + (g.visible ? '' : ' hidden-layer');
+        const chev = document.createElement('button');
+        chev.className = 'layer-group-chevron' + (g.collapsed ? ' collapsed' : '');
+        chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+        chev.title = g.collapsed ? 'Expand group' : 'Collapse group';
+        chev.onclick = (ev) => { ev.stopPropagation(); g.collapsed = !g.collapsed; renderLayerList(); saveSoon(); };
+        const eye = document.createElement('button');
+        eye.className = 'layer-eye';
+        eye.innerHTML = g.visible
+          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'
+          : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.2A10 10 0 0 1 12 4c6 0 10 8 10 8a18 18 0 0 1-2.3 3.2M6.6 6.6A17 17 0 0 0 2 12s4 8 10 8a9.7 9.7 0 0 0 5.4-1.6"/><path d="m2 2 20 20"/></svg>';
+        eye.onclick = (ev) => { ev.stopPropagation(); g.visible = !g.visible; composite(); renderLayerList(); saveSoon(); };
+        const ic = document.createElement('span');
+        ic.className = 'layer-group-icon';
+        ic.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h5l2 3h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>';
+        const nm = document.createElement('div');
+        nm.className = 'layer-name'; nm.textContent = g.name;
+        nm.ondblclick = (ev) => { ev.stopPropagation(); const v = prompt('Group name', g.name); if (v) { g.name = v; renderLayerList(); saveSoon(); } };
+        const count = layers.filter(x => x.groupId === g.id).length;
+        const badge = document.createElement('span');
+        badge.className = 'layer-kind'; badge.textContent = count + (count === 1 ? ' layer' : ' layers');
+        row.append(chev, eye, ic, nm, badge);
+        row.onclick = () => { exitMaskEdit(); if (xform) commitTransform(); activeId = g.id; vSel = null; renderLayerList(); composite(); };
+        return row;
+      }
+
+      // A normal layer row. `inGroup` indents it and marks it as a group child.
+      function buildLayerRow(l, inGroup) {
+        const row = document.createElement('div');
+        row.className = 'layer-row' + (l.id === activeId ? ' active' : '') + (l.visible ? '' : ' hidden-layer') + (inGroup ? ' layer-in-group' : '');
+        const eye = document.createElement('button');
+        eye.className = 'layer-eye';
+        eye.innerHTML = l.visible
+          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'
+          : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.2A10 10 0 0 1 12 4c6 0 10 8 10 8a18 18 0 0 1-2.3 3.2M6.6 6.6A17 17 0 0 0 2 12s4 8 10 8a9.7 9.7 0 0 0 5.4-1.6"/><path d="m2 2 20 20"/></svg>';
+        eye.onclick = (ev) => { ev.stopPropagation(); l.visible = !l.visible; composite(); renderLayerList(); saveSoon(); };
+        const th = document.createElement('canvas');
+        th.className = 'layer-thumb'; th.width = 26; th.height = 26;
+        const tc = th.getContext('2d');
+        tc.drawImage(l.canvas, 0, 0, 26, 26);
+        const nm = document.createElement('div');
+        nm.className = 'layer-name'; nm.textContent = l.name;
+        nm.ondblclick = (ev) => {
+          ev.stopPropagation();
+          const v = prompt('Layer name', l.name);
+          if (v) { l.name = v; renderLayerList(); saveSoon(); }
+        };
+        const kind = document.createElement('span');
+        kind.className = 'layer-kind'; kind.textContent = l.kind === 'vector' ? 'VEC' : 'PIX';
+        row.append(eye, th, nm, kind);
+        if (l.mask) {
+          const mth = document.createElement('canvas');
+          mth.className = 'layer-mask-chip' + (maskEditing && l.id === activeId ? ' editing' : '');
+          mth.width = 20; mth.height = 20;
+          mth.title = (maskEditing && l.id === activeId) ? 'Editing mask — click to stop' : 'Layer mask — click to edit';
+          const mc = mth.getContext('2d');
+          mc.fillStyle = '#3a3f47'; mc.fillRect(0,0,20,20);
+          mc.fillStyle = '#2a2e35';
+          for (let yy=0; yy<20; yy+=5) for (let xx=0; xx<20; xx+=5) if (((xx+yy)/5)%2) mc.fillRect(xx,yy,5,5);
+          mc.drawImage(l.mask, 0, 0, 20, 20);
+          mth.onclick = (ev) => {
+            ev.stopPropagation();
+            if (l.id !== activeId) { activeId = l.id; renderLayerList(); syncLayerControls(); composite(); }
+            toggleMaskPaint();
+          };
+          row.append(mth);
+        }
+        // Join/leave group toggle: puts the layer into the nearest group above it,
+        // or pulls it out if already grouped.
+        const gt = document.createElement('button');
+        gt.className = 'layer-group-toggle';
+        gt.title = inGroup ? 'Remove from group' : 'Add to group above';
+        gt.textContent = inGroup ? '⊟' : '⊞';
+        gt.onclick = (ev) => { ev.stopPropagation(); toggleLayerGroup(l); };
+        row.append(gt);
+        row.onclick = () => {
+          exitMaskEdit();
+          if (xform) commitTransform();
+          activeId = l.id; vSel = null; renderLayerList(); syncLayerControls(); composite();
+        };
+        return row;
+      }
+
+      // Join the layer to the nearest group header above it in paint order, or if it's
+      // already in a group, remove it. Keeps the layer's pixels; only its membership
+      // changes.
+      function toggleLayerGroup(l) {
+        if (l.groupId) { l.groupId = null; renderLayerList(); saveSoon(); return; }
+        const idx = layers.indexOf(l);
+        let gid = null;
+        for (let i = idx + 1; i < layers.length; i++) {   // upward in display = later in array
+          if (layers[i].kind === 'group') { gid = layers[i].id; break; }
+        }
+        if (!gid) { banner('No group above this layer — make a group first.'); return; }
+        l.groupId = gid;
+        renderLayerList(); composite(); saveSoon();
       }
       function syncLayerControls() {
         const l = active(); if (!l) return;
@@ -12620,6 +12929,11 @@
       // Bring an image file in as its own layer, scaled to fit the canvas.
       function placeImage(f) {
         if (!f) return;
+        // Photoshop files: import each PSD layer as its own paint layer.
+        if (/\.psd$/i.test(f.name || '') || f.type === 'image/vnd.adobe.photoshop') {
+          placePSD(f);
+          return;
+        }
         const img = new Image();
         img.onload = () => {
           const name = (f.name || 'Image').replace(/\.[^.]+$/, '');
@@ -12635,13 +12949,83 @@
         img.src = URL.createObjectURL(f);
       }
 
+      // Import a layered Photoshop (.psd) file. Each PSD layer becomes a paint layer,
+      // preserving name, opacity, blend mode and visibility. RGB / 8-bit files import
+      // fully; anything the parser can't read (16/32-bit, CMYK) falls back to loading
+      // the file as a single flattened image so the user still gets their artwork.
+      function placePSD(f) {
+        const reader = new FileReader();
+        reader.onload = () => {
+         try {
+          let psd;
+          try { psd = window.parsePSD(reader.result); }
+          catch (err) {
+            banner('This PSD needs flattening — importing a single combined layer.');
+            placePSDFallback(f);
+            return;
+          }
+          const layers2 = (psd.layers || []).filter(l => l.rgba && l.width > 0 && l.height > 0);
+          if (!layers2.length) { placePSDFallback(f); return; }
+          const base = (f.name || 'PSD').replace(/\.[^.]+$/, '');
+          // PSD stores layers bottom-first; add in that order so stacking matches.
+          // Build all layers directly (bypassing addLayer's per-layer composite/history)
+          // so a 20-layer PSD is one undo step and one repaint, not twenty.
+          exitMaskEdit();
+          const scale = Math.min(W / psd.width, H / psd.height, 1);
+          const ox = (W - psd.width * scale) / 2, oy = (H - psd.height * scale) / 2;
+          let added = 0, lastId = null;
+          layers2.forEach((pl, i) => {
+            const name = pl.name || (base + ' ' + (i + 1));
+            const layer = makeLayer(name, 'raster');
+            const tmp = document.createElement('canvas');
+            tmp.width = pl.rgba.width; tmp.height = pl.rgba.height;
+            tmp.getContext('2d').putImageData(new ImageData(pl.rgba.data, pl.rgba.width, pl.rgba.height), 0, 0);
+            layer.ctx.drawImage(tmp, ox + pl.left * scale, oy + pl.top * scale, pl.rgba.width * scale, pl.rgba.height * scale);
+            if (typeof pl.opacity === 'number') layer.opacity = Math.max(0, Math.min(1, pl.opacity / 255));
+            if (pl.blend) layer.blend = pl.blend;
+            if (pl.hidden) layer.visible = false;
+            touch(layer);
+            layers.push(layer);
+            lastId = layer.id;
+            added++;
+          });
+          if (lastId) activeId = lastId;
+          composite(); renderLayerList(); pushHistory();
+          banner(`Imported "${base}" — ${added} layer${added === 1 ? '' : 's'} (${psd.width}×${psd.height}).`);
+         } catch (err) {
+          banner('Couldn\'t import that PSD: ' + (err && err.message || err));
+          console.error('PSD import error:', err);
+         }
+        };
+        reader.onerror = () => banner('Couldn\'t read that PSD file.');
+        reader.readAsArrayBuffer(f);
+      }
+
+      // When a PSD can't be parsed as layers, browsers can't decode PSD as an image
+      // either, so we can't recover a preview. Tell the user plainly.
+      function placePSDFallback(f) {
+        const img = new Image();
+        img.onload = () => {
+          const name = (f.name || 'PSD').replace(/\.[^.]+$/, '');
+          const l = addLayer('raster', name);
+          const s = Math.min(W / img.width, H / img.height, 1);
+          l.ctx.drawImage(img, (W - img.width * s) / 2, (H - img.height * s) / 2, img.width * s, img.height * s);
+          composite(); renderLayerList(); pushHistory();
+          banner(`Added "${name}" as a single layer.`);
+          URL.revokeObjectURL(img.src);
+        };
+        img.onerror = () => banner('This PSD uses a mode ModelSmith can\'t read (e.g. 16-bit or CMYK). Re-save it as 8-bit RGB, or export a PNG.');
+        img.src = URL.createObjectURL(f);
+      }
+
       // ── Flatten / export ────────────────────────────────────────────────────
       function flatten() {
         const out = document.createElement('canvas'); out.width = W; out.height = H;
         const c = out.getContext('2d');
         layers.forEach(l => {
-          if (!l.visible || l.opacity <= 0) return;
-          c.globalAlpha = l.opacity; c.globalCompositeOperation = l.blend || 'source-over';
+          if (l.kind === 'group') return;
+          if (!effVisible(l) || effOpacity(l) <= 0) return;
+          c.globalAlpha = effOpacity(l); c.globalCompositeOperation = l.blend || 'source-over';
           c.drawImage(l.canvas, 0, 0);
         });
         return out;
@@ -12751,9 +13135,25 @@
           vSnapEnabled = e.target.checked;
           banner(vSnapEnabled ? 'Angle-snap on — lines lock to 0/45/90°, boxes to square.' : 'Angle-snap off — freehand shapes.');
         };
+        if ($('ps-aspect')) $('ps-aspect').onchange = e => {
+          aspectLock = e.target.checked;
+          banner(aspectLock ? 'Lock ratio on — squares, circles, 45° lines. (Or hold Shift.)' : 'Lock ratio off.');
+        };
         wireColor();
 
         $('pl-add').onclick = () => { addLayer('raster'); banner('Layer added.'); };
+        $('pl-add-group').onclick = () => {
+          // Insert a group header just above the active layer, and drop that layer in.
+          const g = makeGroup('Group');
+          const l = active();
+          let idx = layers.findIndex(x => x.id === activeId);
+          if (idx < 0) idx = layers.length - 1;
+          // header sits just after the active layer in the array (= above it in display)
+          layers.splice(idx + 1, 0, g);
+          if (l && l.kind !== 'group') l.groupId = g.id;
+          activeId = g.id;
+          renderLayerList(); composite(); pushHistory(); banner('Group added.');
+        };
         $('pl-add-vec').onclick = () => { addLayer('vector', 'Vector ' + layerSeq); banner('Vector layer added — draw shapes, then edit their points.'); };
         $('pl-rasterize').onclick = () => {
           const l = active();
@@ -12785,19 +13185,36 @@
         };
         $('pl-dup').onclick = () => {
           const l = active(); if (!l) return;
+          if (l.kind === 'group') return banner('Select a layer to duplicate, not a group.');
           const n = addLayer(l.kind, l.name + ' copy');
           n.ctx.drawImage(l.canvas, 0, 0);
           n.shapes = JSON.parse(JSON.stringify(l.shapes || []));
-          n.blend = l.blend; n.opacity = l.opacity;
+          n.blend = l.blend; n.opacity = l.opacity; n.groupId = l.groupId || null;
           composite(); renderLayerList(); pushHistory();
         };
         $('pl-del').onclick = () => {
-          if (layers.length <= 1) return banner('Keep at least one layer.');
+          const cur = active();
           exitMaskEdit();
           if (xform) cancelTransform();
           const i = layers.findIndex(l => l.id === activeId);
+          if (i < 0) return;
+          if (cur && cur.kind === 'group') {
+            // Deleting a group removes the folder but keeps its layers, ungrouped.
+            layers.forEach(x => { if (x.groupId === cur.id) x.groupId = null; });
+            layers.splice(i, 1);
+            const nextReal = layers.find(x => x.kind !== 'group');
+            activeId = nextReal ? nextReal.id : (layers[0] && layers[0].id);
+            composite(); renderLayerList(); pushHistory(); banner('Group removed; layers kept.');
+            return;
+          }
+          const realLayers = layers.filter(l => l.kind !== 'group');
+          if (realLayers.length <= 1) return banner('Keep at least one layer.');
           layers.splice(i, 1);
-          activeId = layers[Math.max(0, i - 1)].id;
+          // pick a neighbouring real layer as active
+          let ni = Math.max(0, i - 1);
+          while (ni < layers.length && layers[ni].kind === 'group') ni++;
+          if (ni >= layers.length) { ni = layers.length - 1; while (ni >= 0 && layers[ni].kind === 'group') ni--; }
+          activeId = layers[ni] ? layers[ni].id : (layers[0] && layers[0].id);
           composite(); renderLayerList(); pushHistory();
         };
         $('pl-up').onclick = () => {
@@ -12809,9 +13226,12 @@
           if (i > 0) { [layers[i], layers[i-1]] = [layers[i-1], layers[i]]; composite(); renderLayerList(); pushHistory(); }
         };
         $('pl-merge').onclick = () => {
+          const cur = active();
+          if (cur && cur.kind === 'group') return banner('Select a layer to merge, not a group.');
           const i = layers.findIndex(l => l.id === activeId);
           if (i <= 0) return banner('Nothing below to merge into.');
           const top = layers[i], below = layers[i-1];
+          if (below.kind === 'group') return banner('Can\'t merge into a group header.');
           below.ctx.save();
           below.ctx.globalAlpha = top.opacity;
           below.ctx.globalCompositeOperation = top.blend || 'source-over';
@@ -12837,6 +13257,7 @@
         $('pi-resize').onclick = () => {
           const nw = parseInt($('pi-w').value), nh = parseInt($('pi-h').value);
           layers.forEach(l => {
+            if (l.kind === 'group') return;
             const tmp = document.createElement('canvas'); tmp.width = nw; tmp.height = nh;
             tmp.getContext('2d').drawImage(l.canvas, 0, 0);
             l.canvas = tmp; l.ctx = tmp.getContext('2d', { willReadFrequently: true });
@@ -12874,7 +13295,7 @@
         // files
         const fileIn = document.createElement('input');
         fileIn.type = 'file';
-        fileIn.accept = 'image/png,image/jpeg,image/jpg,image/bmp,image/gif,image/webp,image/*';
+        fileIn.accept = 'image/png,image/jpeg,image/jpg,image/bmp,image/gif,image/webp,.psd,image/vnd.adobe.photoshop,image/*';
         fileIn.multiple = true;
         fileIn.style.display = 'none';
         document.body.appendChild(fileIn);
