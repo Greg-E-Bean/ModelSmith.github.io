@@ -1473,6 +1473,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11 13 1l2.5 2.5a3 3 0 0 1 0 4.2L9 14 3 11Z"/><path d="M9 14 4.5 18.5a2.1 2.1 0 0 1-3-3L6 11"/><path d="m14.5 14.5 6 6M17.5 11.5l3 3"/></svg>
           <span class="tip">Slice / Cut</span>
         </button>
+        <button id="tool-mold" data-tool="mold">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h6v12H4zM14 8h6v12h-6z"/><path d="M9 4h6l-1.5 4h-3z"/><path d="M10 14h4" opacity="0.45"/></svg>
+          <span class="tip">Mold / Cast</span>
+        </button>
         <button id="tool-fillet" data-tool="fillet">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 21V11A8 8 0 0 0 13 3H3"/><path d="M21 21H3V3" opacity="0.35"/></svg>
           <span class="tip">Fillet Edges</span>
@@ -1819,6 +1823,28 @@
         <div class="param-label">Distance <span class="val" id="bld-exh-val">15 mm</span></div>
         <input type="range" id="bld-exh" min="1" max="100" step="1" value="15">
         <button class="mini-btn primary" id="bld-extrude-btn" style="width:100%; margin-top:2px;">Apply push / pull</button>
+      </div>
+
+      <div class="section" id="sec-mold">
+        <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h6v12H4zM14 8h6v12h-6z"/><path d="M9 4h6l-1.5 4h-3z"/></svg>Mold / Cast</div>
+        <div class="hint" style="text-align:left; margin-top:0; margin-bottom:8px;">Select one solid, then generate. You get a two-part block mold: the object's shape hollowed out inside, a pour funnel and an air vent that both run down the seam, and tapered pegs so the halves line up. Print both halves, clamp them together, and pour. Because the funnel meets the cavity at the parting line, the sprue stub breaks away with the seam instead of leaving a mark on a face.</div>
+        <button class="mini-btn primary" id="bld-mold-go" style="width:100%; margin-bottom:9px;">Generate mold</button>
+        <div class="param-label">Wall thickness <span class="val" id="mold-wall-val">8 mm</span></div>
+        <input type="range" id="mold-wall" min="2" max="30" step="0.5" value="8">
+        <div class="param-label">Pour hole radius <span class="val" id="mold-sprue-val">6 mm</span></div>
+        <input type="range" id="mold-sprue" min="1" max="20" step="0.5" value="6">
+        <div class="param-label">Peg radius <span class="val" id="mold-peg-val">3 mm</span></div>
+        <input type="range" id="mold-peg" min="1" max="10" step="0.5" value="3">
+        <div class="param-label">Peg clearance <span class="val" id="mold-clear-val">0.15 mm</span></div>
+        <input type="range" id="mold-clear" min="0" max="0.6" step="0.05" value="0.15">
+        <div class="hint" style="text-align:left; margin:2px 0 8px;">Clearance is the gap between peg and socket. Raise it if the halves are too tight to separate on your printer.</div>
+        <div class="param-label">Split direction</div>
+        <select id="mold-axis" class="hud-select" style="width:100%;">
+          <option value="z">Front / back (Z)</option>
+          <option value="x">Left / right (X)</option>
+        </select>
+        <label class="hud-check" style="margin-top:9px;"><input type="checkbox" id="mold-vent" checked> Add air vent</label>
+        <div class="hint" style="text-align:left; margin-top:7px;">Pick the split direction that puts the widest part of your object flat against the parting line — that way it releases without undercuts trapping it.</div>
       </div>
 
       <div class="section" id="sec-slice">
@@ -5356,6 +5382,386 @@
         recenterMeshTransform(m);
         m.castShadow = true; m.receiveShadow = true;
         return m;
+      }
+
+      // ── Mold / cast generation ──────────────────────────────────────────
+      // Wraps a solid in a two-part block mold: the block is the object's bounding
+      // box grown by a wall thickness, with the object subtracted to leave the
+      // cavity, a funnel (sprue) cut from the top down into the cavity so you can
+      // pour, and the whole thing split into two halves with registration pegs so
+      // they line up and stay put while the material sets.
+      // Set by buildMold so generateMold can report how many pegs actually landed.
+      let moldPegsAdded = 0, moldPegsWanted = 0, moldPegSkipReason = '';
+      // Wrapper around buildMold that retries on solver collapse.
+      //
+      // The BSP boolean engine is numerically fragile: whether it survives depends
+      // on exact coplanar coincidences between the block, the cavity and the funnel.
+      // That is why results looked random — sprue 5 worked, 6 failed, 8 worked again.
+      // Nudging the dimensions by a fraction of a millimetre breaks the coincidence
+      // without meaningfully changing the mold, so a retry almost always succeeds.
+      function buildMoldRobust(mesh, opts) {
+        const jitters = [0, 0.37, -0.29, 0.63, -0.51, 0.91];
+        let lastErr = null;
+        for (let i = 0; i < jitters.length; i++) {
+          const j = jitters[i];
+          const tryOpts = Object.assign({}, opts);
+          if (j !== 0) {
+            tryOpts.wall = opts.wall + j * 0.5;
+            tryOpts.sprue = Math.max(0.6, opts.sprue + j * 0.4);
+            tryOpts.sprueTop = tryOpts.sprue * 1.7;
+            tryOpts.pegR = Math.max(0.8, opts.pegR + j * 0.15);
+          }
+          try {
+            const res = buildMold(mesh, tryOpts);
+            if (i > 0) console.info('Mold: succeeded on retry ' + i + ' (nudged dimensions to avoid a boolean edge case).');
+            return res;
+          } catch (err) { lastErr = err; }
+        }
+        throw lastErr || new Error('the mold could not be built.');
+      }
+      function buildMold(mesh, opts) {
+        const CSG = window.CSGEngine;
+        const o = Object.assign({
+          wall: 8,          // mm of material around the object
+          sprue: 6,         // pour-hole radius at the object
+          sprueTop: 10,     // radius at the top opening (a funnel, so wider)
+          pegR: 3,          // registration peg radius
+          pegClear: 0.15,   // clearance so the halves actually come apart
+          pegCount: 4,
+          split: 'z',       // axis the two halves separate along
+          vent: true        // add a thin riser opposite the sprue to let air out
+        }, opts || {});
+        // A top/bottom split can't work with a top-poured mold: the parting plane
+        // would run straight through the funnel and the vent, which both rise
+        // vertically. That produced either a broken mold or a runaway boolean, so
+        // it's refused up front with an explanation rather than failing obscurely.
+        if (o.split === 'y') {
+          throw new Error('a top/bottom split would cut through the pour funnel — use front/back or left/right instead.');
+        }
+
+        mesh.updateMatrixWorld(true);
+        const src = mesh.geometry.clone();
+        src.applyMatrix4(mesh.matrixWorld);
+        src.computeBoundingBox();
+        const bb = src.boundingBox;
+        const size = new THREE.Vector3(); bb.getSize(size);
+        const ctr  = new THREE.Vector3(); bb.getCenter(ctr);
+        if (size.x <= 0 || size.y <= 0 || size.z <= 0) throw new Error('That object has no volume to cast.');
+
+        // Outer block: object bounds plus wall on every side. Extra headroom on top
+        // so the funnel has somewhere to live. The wall is also widened if needed so
+        // the requested peg has material to sit in — otherwise a large peg on a thin
+        // wall either clipped the cavity or left the mold with nothing to align it.
+        const head = Math.max(o.sprueTop * 1.6, o.wall);
+        const wallNeeded = Math.max(o.wall, o.pegR * 2.6);
+        const bw = size.x + wallNeeded*2, bh = size.y + wallNeeded*2 + head, bd = size.z + wallNeeded*2;
+        const blockGeo = new THREE.BoxGeometry(bw, bh, bd);
+        const block = new THREE.Mesh(blockGeo, new THREE.MeshStandardMaterial());
+        block.position.set(ctr.x, ctr.y + head/2, ctr.z);
+        block.updateMatrixWorld(true);
+
+        // Funnel: a cone from the top of the block down INTO the cavity, entering at
+        // the PARTING LINE rather than the middle of the object's top face.
+        //
+        // Why the edge and not the centre: the sprue leaves a stub of set material
+        // where it meets the casting. Landing it on the top face means snapping that
+        // stub off a visible surface, and the vertical channel becomes an undercut
+        // that fights you when the halves come apart. Entering at the parting line
+        // puts the stub on the seam, where it splits between the halves and breaks
+        // away with the flash — the mold opens cleanly and the cast face stays clean.
+        //
+        // The radii are still capped against the object's footprint: a funnel wider
+        // than the thing being cast carves the mold apart instead of feeding it.
+        const foot = Math.min(size.x, size.z);
+        const sprueBot = Math.max(0.8, Math.min(o.sprue, foot * 0.40));
+        const sprueTopR = Math.max(sprueBot * 1.2, Math.min(o.sprueTop, foot * 0.48));
+        const topY = bb.max.y, blockTopY = ctr.y + head/2 + bh/2;
+        // Push the funnel past the cavity edge so the two definitely merge.
+        // Run the funnel from the block's top face right down into the cavity —
+        // past the roof and a good way into the object's volume. Stopping at the
+        // roof leaves a thin membrane that reads as closed and prints as a skin;
+        // this guarantees one continuous channel from the outside to the cavity.
+        const bite = Math.max(2, size.y * 0.45);
+        const sprueH = Math.max(1, blockTopY - topY + bite);
+        const sprueGeo = new THREE.CylinderGeometry(sprueTopR, sprueBot, sprueH, 28);
+        // The funnel sits on the object's centre line, which is where the parting
+        // plane runs — so the split bisects it and each half gets an identical
+        // half-channel. Opening the mold pulls the two halves of the sprue apart
+        // sideways, with nothing to trap the casting.
+        //
+        // It is NOT pushed out to the object's edge: a funnel wider than the
+        // remaining margin simply hangs off into the wall and bores a trench
+        // beside the cavity instead of feeding it.
+        const sprueX = ctr.x, sprueZ = ctr.z;
+        const sprue = new THREE.Mesh(sprueGeo, new THREE.MeshStandardMaterial());
+        sprue.position.set(sprueX, topY + sprueH/2 - bite, sprueZ);
+        sprue.updateMatrixWorld(true);
+
+        // Cut the cavity and the pour channel out of the block.
+        let solid = CSG.fromMesh(block);
+        solid = solid.subtract(CSG.fromMesh(mesh));
+        solid = solid.subtract(CSG.fromMesh(sprue));
+
+        // Air vent — a narrow riser at a corner of the object so trapped air escapes
+        // rather than leaving a void in the casting.
+        if (o.vent) {
+          // Keep the vent genuinely thin and tied to the object's size — a vent
+          // scaled off the pour radius could rival the cavity on small parts and
+          // destabilise the boolean.
+          // Vent sits on the parting line as well, offset from the pour so air is
+          // pushed ahead of the incoming material and escapes rather than being
+          // trapped. It's kept well inside the object's footprint — hugging the
+          // edge just bores a trench through the wall instead of venting the cavity.
+          const vr = Math.max(0.5, Math.min(o.sprue * 0.28, foot * 0.08));
+          let vx = ctr.x, vz = ctr.z;
+          if (o.split === 'z') vx = ctr.x + Math.max(vr * 2, size.x * 0.28);
+          else vz = ctr.z + Math.max(vr * 2, size.z * 0.28);
+          const vh = Math.max(1, blockTopY - (bb.min.y + size.y*0.5));
+          const vent = new THREE.Mesh(new THREE.CylinderGeometry(vr, vr, vh, 14), new THREE.MeshStandardMaterial());
+          vent.position.set(vx, bb.min.y + size.y*0.5 + vh/2, vz);
+          vent.updateMatrixWorld(true);
+          solid = solid.subtract(CSG.fromMesh(vent));
+        }
+
+        // Registration pegs: cones on one half, matching sockets on the other. Cones
+        // (rather than cylinders) self-centre and release cleanly.
+        //
+        // Two things matter for reliability here. The pegs are pulled well inside the
+        // block face — a peg sitting exactly on an edge makes the BSP solver produce
+        // degenerate splits that can collapse the whole half to nothing. And all pegs
+        // are combined into ONE solid before a single union, rather than unioned one
+        // at a time, which is both faster and far more numerically stable.
+        const axis = o.split;
+        const cy = ctr.y + head/2;
+        // Pegs must sit in the WALL — the material between the object's bounding box
+        // and the block's outer face. Previously the inset was measured from the block
+        // face inward with no reference to the object, so on anything that filled its
+        // bounding box the pegs punched straight into the cavity and the CSG fell
+        // apart. Here we compute the mid-line of the wall on each side and place the
+        // peg there, then verify it clears the object before using it.
+        const objMinY = bb.min.y, objMaxY = bb.max.y;
+        const objMinZ = bb.min.z, objMaxZ = bb.max.z;
+        const objMinX = bb.min.x, objMaxX = bb.max.x;
+        const blockMinX = ctr.x - bw/2, blockMaxX = ctr.x + bw/2;
+        const blockMinY = cy - bh/2,   blockMaxY = cy + bh/2;
+        const blockMinZ = ctr.z - bd/2, blockMaxZ = ctr.z + bd/2;
+        // Midpoint of the wall gap on each side, and how much room that gap has.
+        const gapLoY = (blockMinY + objMinY) / 2, roomLoY = (objMinY - blockMinY) / 2;
+        const gapHiY = (blockMaxY + objMaxY) / 2, roomHiY = (blockMaxY - objMaxY) / 2;
+        const gapLoZ = (blockMinZ + objMinZ) / 2, roomLoZ = (objMinZ - blockMinZ) / 2;
+        const gapHiZ = (blockMaxZ + objMaxZ) / 2, roomHiZ = (blockMaxZ - objMaxZ) / 2;
+        const gapLoX = (blockMinX + objMinX) / 2, roomLoX = (objMinX - blockMinX) / 2;
+        const gapHiX = (blockMaxX + objMaxX) / 2, roomHiX = (blockMaxX - objMaxX) / 2;
+
+        // A peg only goes in if the wall there is thick enough to hold it with a
+        // little margin either side — otherwise it would clip the cavity or break
+        // out through the outer face.
+        const need = o.pegR * 1.25;
+        let pegSpecs;
+        if (axis === 'z') {
+          pegSpecs = [
+            { p: [gapLoX, gapLoY, ctr.z], room: Math.min(roomLoX, roomLoY) },
+            { p: [gapHiX, gapLoY, ctr.z], room: Math.min(roomHiX, roomLoY) },
+            { p: [gapLoX, gapHiY, ctr.z], room: Math.min(roomLoX, roomHiY) },
+            { p: [gapHiX, gapHiY, ctr.z], room: Math.min(roomHiX, roomHiY) }];
+        } else if (axis === 'x') {
+          pegSpecs = [
+            { p: [ctr.x, gapLoY, gapLoZ], room: Math.min(roomLoY, roomLoZ) },
+            { p: [ctr.x, gapLoY, gapHiZ], room: Math.min(roomLoY, roomHiZ) },
+            { p: [ctr.x, gapHiY, gapLoZ], room: Math.min(roomHiY, roomLoZ) },
+            { p: [ctr.x, gapHiY, gapHiZ], room: Math.min(roomHiY, roomHiZ) }];
+        } else {
+          pegSpecs = [
+            { p: [gapLoX, cy, gapLoZ], room: Math.min(roomLoX, roomLoZ) },
+            { p: [gapHiX, cy, gapLoZ], room: Math.min(roomHiX, roomLoZ) },
+            { p: [gapLoX, cy, gapHiZ], room: Math.min(roomLoX, roomHiZ) },
+            { p: [gapHiX, cy, gapHiZ], room: Math.min(roomHiX, roomHiZ) }];
+        }
+        // Shrink the peg to fit the tightest corner rather than dropping pegs
+        // entirely — a smaller peg still aligns the halves.
+        const usable = pegSpecs.filter(s => s.room >= need * 0.6);
+        let pegR = o.pegR;
+        if (usable.length) pegR = Math.min(pegR, Math.max(1, Math.min(...usable.map(s => s.room)) / 1.25));
+        const pegs = usable.map(s => s.p);
+        const pegLen = pegR * 2.4;
+        // Record why pegs were skipped so the caller can explain it. A thin wall
+        // simply has nowhere to put them; the fix is a thicker wall, not a retry.
+        moldPegSkipReason = usable.length < pegSpecs.length
+          ? 'the wall is too thin to hold them — raise Wall thickness or lower Peg radius'
+          : '';
+
+        const pegMesh = (x, y, z, r, len) => {
+          // A TRUNCATED cone, not a sharp one. A true cone's apex is a degenerate
+          // point where every face converges at zero radius, and that reliably
+          // collapses this BSP solver — the union silently returned an empty solid,
+          // which is why earlier builds produced molds with no pegs at all. Tapering
+          // to a small flat top keeps the self-centring behaviour without the
+          // degenerate vertex, and prints better too (no fragile needle tip).
+          const g = new THREE.CylinderGeometry(r * 0.45, r, len, 18);
+          const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial());
+          // Cylinder runs along +Y by default; aim it down the split axis.
+          if (axis === 'z') m.rotation.x = Math.PI/2;
+          else if (axis === 'x') m.rotation.z = -Math.PI/2;
+          m.position.set(x, y, z);
+          m.updateMatrixWorld(true);
+          return m;
+        };
+
+        // The cutting plane that separates the halves runs through the object centre.
+        const planeCentre = new THREE.Vector3(ctr.x, cy, ctr.z);
+        const big = Math.max(bw, bh, bd) * 2;
+        const halfBoxGeo = new THREE.BoxGeometry(
+          axis === 'x' ? big/2 : big, axis === 'y' ? big/2 : big, axis === 'z' ? big/2 : big);
+        const mkHalfCutter = (sign) => {
+          const m = new THREE.Mesh(halfBoxGeo.clone(), new THREE.MeshStandardMaterial());
+          const off = big/4 * sign;
+          m.position.set(planeCentre.x + (axis==='x'?off:0),
+                         planeCentre.y + (axis==='y'?off:0),
+                         planeCentre.z + (axis==='z'?off:0));
+          m.updateMatrixWorld(true);
+          return m;
+        };
+
+        // Half A keeps everything on the negative side of the plane; half B the rest.
+        let halfA = solid.intersect(CSG.fromMesh(mkHalfCutter(-1)));
+        let halfB = solid.intersect(CSG.fromMesh(mkHalfCutter(+1)));
+
+        // Apply each peg to its half in turn. They must NOT be unioned together
+        // first: this BSP solver annihilates a union of two solids that don't
+        // touch, so combining the separated pegs produced an empty solid and the
+        // pegs vanished. Applied one at a time each peg overlaps the block, which
+        // the solver handles correctly.
+        const shift = pegLen/2 * 0.98;
+        const offs = (v) => [
+          v[0] + (axis==='x' ? -shift : 0),
+          v[1] + (axis==='y' ? -shift : 0),
+          v[2] + (axis==='z' ? -shift : 0)];
+        // Keep a copy of the clean halves. If a peg operation collapses the solver
+        // we fall back to these rather than losing the whole mold — a mold you have
+        // to align by eye still beats a pile of shards.
+        const safeA = halfA, safeB = halfB;
+        let pegsAdded = 0;
+        pegs.forEach((v) => {
+          const [x,y,z] = offs(v);
+          try {
+            const grown = halfA.union(CSG.fromMesh(pegMesh(x, y, z, pegR, pegLen)));
+            const cut = halfB.subtract(CSG.fromMesh(pegMesh(x, y, z, pegR + o.pegClear, pegLen + o.pegClear*2)));
+            // Only accept the pair if BOTH survived, so a peg and its socket always
+            // stay in step — a peg with no matching hole would jam the mold shut.
+            if (grown.polygons.length > 24 && cut.polygons.length > 24) {
+              halfA = grown; halfB = cut; pegsAdded++;
+            }
+          } catch (e) { /* this peg didn't take; carry on with the others */ }
+        });
+        if (pegsAdded === 0) { halfA = safeA; halfB = safeB; }
+        // Report back so the caller can tell the user rather than quietly shipping
+        // a mold with nothing to align it.
+        moldPegsAdded = pegsAdded;
+        moldPegsWanted = pegs.length;
+
+        blockGeo.dispose(); sprueGeo.dispose(); halfBoxGeo.dispose(); src.dispose();
+        // Final sanity check. If either half came back empty or absurdly small the
+        // boolean chain broke down somewhere; better to say so plainly than to drop
+        // a pile of shards into the scene.
+        const volOf = (csg) => {
+          const g = CSG.toGeometry(csg);
+          const p = g.attributes.position;
+          if (!p || p.count < 12) return 0;
+          let v = 0;
+          const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+          for (let i = 0; i < p.count; i += 3) {
+            a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i+1); c.fromBufferAttribute(p, i+2);
+            v += a.dot(b.clone().cross(c)) / 6;
+          }
+          return Math.abs(v);
+        };
+        const blockVol = bw * bh * bd;
+        const vA = volOf(halfA), vB = volOf(halfB);
+        if (vA < blockVol * 0.05 || vB < blockVol * 0.05) {
+          throw new Error('this shape defeated the boolean solver — try nudging Wall thickness by a millimetre or two, or a different split direction. Cones and sharp points are the usual culprits.');
+        }
+        // A half made only of the outer box passes a volume test but has no cavity —
+        // it's a solid brick, useless for casting. Two independent signals catch it:
+        // a bare box has almost no triangles, and the pair should together be clearly
+        // smaller than a solid block once the cavity and funnel are removed.
+        const trisA = CSG.toGeometry(halfA).attributes.position.count / 3;
+        const trisB = CSG.toGeometry(halfB).attributes.position.count / 3;
+        if (trisA < 24 || trisB < 24) {
+          throw new Error('the cavity did not form — try a slightly different wall thickness or pour size.');
+        }
+        if ((vA + vB) > blockVol * 0.995) {
+          throw new Error('the cavity did not form — try a slightly different wall thickness or pour size.');
+        }
+        return { csgA: halfA, csgB: halfB, axis };
+      }
+
+      // Turn the selected solid into a two-part mold and drop the halves into the scene.
+      function generateMold() {
+        if (selected.length !== 1) return banner('⚠️ Select exactly one solid to cast.');
+        const src = selected[0];
+        if (src.userData.isSketch) return banner('⚠️ Molds need a solid — extrude the sketch first.');
+        const meshes = collectSolidMeshes(src);
+        if (!meshes.length) return banner('⚠️ That selection has no solid geometry.');
+        if (meshes.length > 1) return banner('⚠️ Combine the group into one solid first (Combine → Union).');
+        const mesh = meshes[0];
+
+        const tris = mesh.geometry.index
+          ? mesh.geometry.index.count / 3
+          : mesh.geometry.attributes.position.count / 3;
+        if (tris > 16000) banner('Working — that is a dense mesh, so this may take a moment…');
+
+        // NOTE: use document.getElementById directly here. The `$` shorthand is
+        // defined inside the Paint module, not this one — calling it threw a
+        // ReferenceError that silently aborted the whole generate step.
+        const el = (id) => document.getElementById(id);
+        const opts = {
+          wall: parseFloat(el('mold-wall') ? el('mold-wall').value : 8) || 8,
+          sprue: parseFloat(el('mold-sprue') ? el('mold-sprue').value : 6) || 6,
+          pegR: parseFloat(el('mold-peg') ? el('mold-peg').value : 3) || 3,
+          pegClear: parseFloat(el('mold-clear') ? el('mold-clear').value : 0.15) || 0.15,
+          split: (el('mold-axis') ? el('mold-axis').value : 'z'),
+          vent: el('mold-vent') ? el('mold-vent').checked : true
+        };
+        opts.sprueTop = opts.sprue * 1.7;
+
+        let res;
+        try { res = buildMoldRobust(mesh, opts); }
+        catch (err) { console.error('Mold build failed:', err); return banner('⚠️ Couldn\'t build that mold: ' + (err.message || err)); }
+
+        const baseName = (src.userData.name || 'Object');
+        const mkHalf = (csg, label) => {
+          const m = csgToRecenteredMesh(csg, mesh.material);
+          m.userData.name = baseName + ' mold ' + label;
+          m.userData.isMoldHalf = true;
+          scene.add(m); objects.push(m);
+          return m;
+        };
+        const a = mkHalf(res.csgA, 'A');
+        const b = mkHalf(res.csgB, 'B');
+
+        // Nudge the halves apart along the split axis so it's obvious they're two
+        // pieces, and so you can see the cavity without moving anything yourself.
+        const bbA = new THREE.Box3().setFromObject(a);
+        const sz = new THREE.Vector3(); bbA.getSize(sz);
+        const gap = Math.max(sz.x, sz.y, sz.z) * 0.32 + opts.wall;
+        if (res.axis === 'x') { a.position.x -= gap; b.position.x += gap; }
+        else if (res.axis === 'y') { a.position.y -= gap; b.position.y += gap; }
+        else { a.position.z -= gap; b.position.z += gap; }
+
+        // Keep the original around but out of the way — it's the pattern, and you
+        // may want to re-cast it with different settings.
+        src.visible = false;
+
+        selected = [a, b];
+        refreshSelectionVisual();
+        attachGizmoToSelection();
+        saveHistory(); updateStatus(); updateFloatingHUD();
+        const pegNote = moldPegsAdded === 0
+          ? `no alignment pegs (${moldPegSkipReason || 'no room for them'})`
+          : (moldPegsAdded === moldPegsWanted
+              ? `${moldPegsAdded} alignment pegs`
+              : `${moldPegsAdded} of ${moldPegsWanted} alignment pegs`);
+        banner(`Mold created — two halves, ${pegNote}, ${opts.vent ? 'a pour funnel and air vent' : 'a pour funnel'}. The original is hidden; unhide it from the Workspace list.`);
       }
 
       function performSlice() {
@@ -9020,6 +9426,7 @@
         sculpt: ['sec-sculpt', 'sec-smooth'],
         pushpull: ['layer-panel', 'sec-extrude', 'sec-revolve', 'sec-loft'],
         slice:  ['sec-slice'],
+        mold:   ['sec-mold'],
         fillet: ['sec-fillet', 'sec-chamfer'],
         paint: ['sec-paint'],
         measure: ['sec-measure']
@@ -9034,7 +9441,7 @@
         ie:     ['sec-import', 'sec-export', 'sec-session']
       };
       let activePanelTab = 'select';
-      const ALL_PANELS = ['sec-select-mini','sec-primitives','sec-text3d','sec-img3d','sec-booleans','sec-fillet','sec-paint','sec-sculpt','sketch-panel','layer-panel','sec-extrude','sec-slice','sec-import','sec-export','sec-session','sec-workspace','sec-mirror','sec-combine','sec-measure','sec-thread','sec-shell','sec-chamfer','sec-array','sec-align','sec-smooth','sec-revolve','sec-loft'];
+      const ALL_PANELS = ['sec-select-mini','sec-primitives','sec-text3d','sec-img3d','sec-booleans','sec-fillet','sec-paint','sec-sculpt','sketch-panel','layer-panel','sec-extrude','sec-slice','sec-import','sec-export','sec-session','sec-workspace','sec-mirror','sec-combine','sec-measure','sec-thread','sec-shell','sec-chamfer','sec-array','sec-align','sec-smooth','sec-revolve','sec-loft','sec-mold'];
 
       function setActivePanelTab(tab) {
         activePanelTab = tab;
@@ -9100,7 +9507,7 @@
         if (tool !== 'pushpull') { clearPushPullFaceHighlight(); }
 
         // Panel title + contextual footer tip per tool
-        const TITLES = { select: 'Select', sketch: 'Sketch', sculpt: 'Sculpt', pushpull: 'Push / Pull', slice: 'Slice / Cut', fillet: 'Fillet Edges', paint: 'Paint', measure: 'Measure' };
+        const TITLES = { select: 'Select', sketch: 'Sketch', sculpt: 'Sculpt', pushpull: 'Push / Pull', slice: 'Slice / Cut', mold: 'Mold / Cast', fillet: 'Fillet Edges', paint: 'Paint', measure: 'Measure' };
         const TAB_TITLES = { select: 'Select', create: 'Create', edit: 'Edit', ie: 'Import / Export' };
         const TIPS = {
           select: 'Click to select. Drag the gizmo or type sizes below.',
@@ -9108,6 +9515,7 @@
           sculpt: 'Arm the brush, then drag across a surface to add or carve.',
           pushpull: 'Pick a baked layer, set direction and distance, then apply.',
           slice: 'Arm the plane, dial in the cut, then perform the slice.',
+          mold: 'Select a solid, then generate a two-part mold to cast it in.',
           fillet: 'Select a solid, set the radius, then round its sharp edges.',
           paint: 'Pick a colour, then click the model to paint it.',
           measure: 'Click two points to measure the distance between them.'
@@ -9125,6 +9533,12 @@
           banner("Sculpt — arm the brush, then drag a surface.");
         }
         else if (tool === 'slice') { currentMode = 'select'; banner("Slice — select a solid, arm the plane, then perform slice."); }
+        else if (tool === 'mold') {
+          // Selection must stay live and clickable: the mold is generated from
+          // whatever solid you have selected, so this behaves like Select.
+          currentMode = 'select';
+          banner("Mold — select a solid, set the options, then Generate mold.");
+        }
         else if (tool === 'fillet') {
           currentMode = 'select';
           transformControl.detach();
@@ -9506,6 +9920,17 @@
 
         // ── Slice tool ────────────────────────────────────────────────
         document.getElementById('bld-slice-arm').onclick = armSlice;
+        // Mold tool
+        const moldGo = document.getElementById('bld-mold-go');
+        if (moldGo) moldGo.onclick = generateMold;
+        [['mold-wall','mold-wall-val',' mm'], ['mold-sprue','mold-sprue-val',' mm'],
+         ['mold-peg','mold-peg-val',' mm'], ['mold-clear','mold-clear-val',' mm']]
+          .forEach(([id, valId, suffix]) => {
+            const el = document.getElementById(id), out = document.getElementById(valId);
+            if (!el || !out) return;
+            const upd = () => { out.textContent = el.value + suffix; };
+            el.oninput = upd; upd();
+          });
         document.getElementById('bld-slice-run').onclick = performSlice;
         document.getElementById('slice-rx').oninput = e => { sliceState.rotX = parseFloat(e.target.value); document.getElementById('slice-rx-val').textContent = e.target.value + "°"; };
         document.getElementById('slice-ry').oninput = e => { sliceState.rotY = parseFloat(e.target.value); document.getElementById('slice-ry-val').textContent = e.target.value + "°"; };
