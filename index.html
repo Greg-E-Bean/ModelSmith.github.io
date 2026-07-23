@@ -1049,6 +1049,37 @@
       cursor: pointer; border-radius: 3px; font-size: 11px; line-height: 1; padding: 1px 4px;
       flex-shrink: 0; margin-left: 2px; }
     .layer-group-toggle:hover { color: var(--accent); border-color: var(--accent); }
+    /* Baseline for every text/number field. Without this the browser default
+       (white box, black text, blue focus ring) showed through on the dimension
+       entries, the transform HUD and the colour fields — jarring against the dark
+       panels. Anything needing something different overrides it locally. */
+    input[type="text"], input[type="number"], input[type="search"], textarea {
+      background: var(--ctl-bg);
+      border: 1px solid var(--ctl-border);
+      color: var(--text);
+      border-radius: 5px;
+      padding: 6px 8px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+      transition: border-color .12s ease, background-color .12s ease;
+    }
+    input[type="text"]:hover, input[type="number"]:hover, textarea:hover {
+      border-color: var(--ctl-border-hover);
+      background: var(--ctl-bg-hover);
+    }
+    input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--focus-ring);
+    }
+    input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: .8; }
+    /* Strip the spinner arrows — they render pale and break the dark styling. */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; }
+
     /* Inline rename field on a layer/group row — replaces the OS prompt dialog. */
     .layer-rename { flex: 1; min-width: 0; background: var(--ctl-bg);
       border: 1px solid var(--accent); color: var(--text); border-radius: 4px;
@@ -11351,8 +11382,71 @@
         };
         ensureTextFont(key).then(() => composite()).catch(() => {});
         startCaret();
+        focusTextCapture();
         composite();
         banner('Type to add text · Enter commits · Esc discards');
+      }
+
+      // Touch keyboards only appear for a focused, editable element — a canvas can
+      // never summon one, so on a tablet the live text had no way to receive input.
+      // This hidden field is focused whenever text goes live: iOS/Android raise the
+      // keyboard for it, and whatever is typed is mirrored straight into liveText.
+      // It's positioned over the caret (not off-screen) because browsers refuse to
+      // show the keyboard for a field outside the viewport, and kept visually
+      // invisible so it never covers the artwork.
+      let textCapture = null;
+      function ensureTextCapture() {
+        if (textCapture) return textCapture;
+        const el = document.createElement('textarea');
+        el.id = 'ps-text-capture';
+        el.setAttribute('autocomplete', 'off');
+        el.setAttribute('autocorrect', 'off');
+        el.setAttribute('autocapitalize', 'off');
+        el.setAttribute('spellcheck', 'false');
+        el.style.cssText = 'position:fixed; opacity:0; pointer-events:none; z-index:-1;' +
+                           'width:1px; height:1px; padding:0; border:0; margin:0;' +
+                           'resize:none; overflow:hidden; background:transparent; color:transparent;';
+        document.body.appendChild(el);
+        // Mirror the field into the live text. Using 'input' rather than key events
+        // means IME composition, autocorrect and paste all work.
+        el.addEventListener('input', () => {
+          if (!liveText) return;
+          liveText.str = el.value;
+          composite();
+        });
+        el.addEventListener('keydown', (ev) => {
+          if (!liveText) return;
+          if (ev.key === 'Enter') { ev.preventDefault(); commitText(); }
+          else if (ev.key === 'Escape') {
+            ev.preventDefault();
+            liveText = null; textDrag = null; stopCaret(); blurTextCapture();
+            composite(); banner('Text discarded.');
+          }
+        });
+        textCapture = el;
+        return el;
+      }
+      function focusTextCapture() {
+        const el = ensureTextCapture();
+        el.value = liveText ? liveText.str : '';
+        // Sit it under the caret so the browser counts it as on-screen.
+        try {
+          const b = liveTextBox();
+          if (b && view) {
+            const r = view.getBoundingClientRect();
+            el.style.left = Math.round(r.left + (b.x + b.w) * zoom) + 'px';
+            el.style.top  = Math.round(r.top  + b.y * zoom) + 'px';
+          }
+        } catch (e) { /* positioning is a nicety, not a requirement */ }
+        setTimeout(() => { try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); } }, 0);
+      }
+      // Keep the hidden field matching liveText when the desktop path edits it, so
+      // switching between typing on a keyboard and a tablet mid-edit stays coherent.
+      function syncTextCapture() {
+        if (textCapture && liveText) textCapture.value = liveText.str;
+      }
+      function blurTextCapture() {
+        if (textCapture) { try { textCapture.blur(); } catch (e) {} }
       }
       // A blinking caret makes it obvious the canvas is accepting keystrokes.
       function startCaret() {
@@ -11430,7 +11524,7 @@
           warp: liveText.warp, amount: liveText.amount
         });
         const s = liveText.str;
-        liveText = null; textDrag = null; stopCaret();
+        liveText = null; textDrag = null; stopCaret(); blurTextCapture();
         renderTextLayer(l);
         composite(); pushHistory('Edited text'); renderLayerList();
         banner(`Text set — click it again with the Text tool to edit.`);
@@ -15190,8 +15284,14 @@
         // keyboard (only while in paint mode)
         document.addEventListener('keydown', (e) => {
           if (document.getElementById('paint-app').style.display === 'none') return;
-          const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+          // The hidden text-capture field is a textarea, but it IS the live text
+          // editor rather than an unrelated form field — it handles its own keys, so
+          // let it through rather than treating focus there as "typing elsewhere".
+          const ae = document.activeElement;
+          const inCapture = ae && ae.id === 'ps-text-capture';
+          const typing = !inCapture && /INPUT|TEXTAREA|SELECT/.test(ae ? ae.tagName : '');
           if (typing) return;
+          if (inCapture) return;   // its own listeners handle Enter/Escape/input
           const k = e.key.toLowerCase();
           const pick = (t) => setTool(t);
           // While text is live the canvas is the text field, so keystrokes must be
@@ -15200,17 +15300,19 @@
           if (liveText) {
             if (k === 'escape') {
               e.preventDefault();
-              liveText = null; textDrag = null; stopCaret(); composite();
+              liveText = null; textDrag = null; stopCaret(); blurTextCapture(); composite();
               banner('Text discarded.'); return;
             }
             if (k === 'enter') { e.preventDefault(); commitText(); return; }
             if (k === 'backspace') {
               e.preventDefault();
-              liveText.str = liveText.str.slice(0, -1); composite(); return;
+              liveText.str = liveText.str.slice(0, -1);
+              syncTextCapture(); composite(); return;
             }
             if (e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
               e.preventDefault();
-              liveText.str += e.key; composite(); return;
+              liveText.str += e.key;
+              syncTextCapture(); composite(); return;
             }
           }
           if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
