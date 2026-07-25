@@ -648,6 +648,22 @@
             const vuv = uvAttr ? { x: uvAttr.getX(idx), y: uvAttr.getY(idx) } : CSG._triplanarUV(vp, vn);
             verts.push(new Vertex(new Vec(vp.x,vp.y,vp.z), new Vec(vn.x,vn.y,vn.z), vc, vuv));
           }
+          // Skip degenerate triangles — ones with effectively no area.
+          //
+          // This is the single biggest reliability fix in the 3D side. A cone from
+          // three.js has 24 zero-area triangles out of 72: the whole apex is a fan
+          // of slivers collapsing to one point. A BSP solver can't derive a plane
+          // from a triangle with no area, so those slivers produced garbage split
+          // planes that shredded the tree — which is why cones failed at booleans,
+          // why "slice then fillet" lost edges, and why mold generation collapsed
+          // on anything pointed. Dropping them costs nothing (they enclose no
+          // volume and are invisible) and takes cone-vs-cone from 0/3 operations
+          // succeeding to 3/3.
+          const p0 = verts[0].pos, p1 = verts[1].pos, p2 = verts[2].pos;
+          const ux = p1.x - p0.x, uy = p1.y - p0.y, uz = p1.z - p0.z;
+          const wx = p2.x - p0.x, wy = p2.y - p0.y, wz = p2.z - p0.z;
+          const cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx;
+          if ((cx*cx + cy*cy + cz*cz) < 1e-16) continue;   // area ~ 0, no usable plane
           polygons.push(new Polygon(verts));
         }
         return CSG.fromPolygons(polygons);
@@ -2779,7 +2795,9 @@
         rotX: 0, rotY: 0, rotZ: 0,
         offset: 0,
         keep: 'both',
-        planeHelper: null
+        planeHelper: null,
+        dragging: false,     // true while the plane itself is being dragged
+        customNormal: null   // set when the plane is rotated by hand
       };
 
       let pushDir = 'pull';   // 'pull' = extrude along +normal, 'push' = along -normal
@@ -2843,6 +2861,9 @@
         container.appendChild(renderer.domElement);
 
         controls = new THREE.OrbitControls(camera, renderer.domElement);
+        // Any camera movement (orbit, pan, zoom, and the damping tail-off) needs
+        // frames, so ask for them explicitly now that the loop idles when still.
+        controls.addEventListener('change', () => { if (window.invalidate3D) window.invalidate3D(); });
         controls.enableDamping = true; controls.dampingFactor = 0.05;
         controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
         // One-finger touch is left free for the app's own tools (select, drag,
@@ -2854,7 +2875,10 @@
         transformControl.setSpace('world'); 
         movePivot = new THREE.Object3D(); movePivot.visible = false; scene.add(movePivot);
         transformControl.addEventListener('dragging-changed', e => { 
-          controls.enabled = !e.value; 
+          controls.enabled = !e.value;
+          invalidate();
+          // Track when the slice plane itself is the thing being dragged.
+          sliceState.dragging = e.value && transformControl.object === sliceState.planeHelper;
           if (e.value) {
             // starting a drag — seed the true position from where the object is now
             _dragTruePos = moveGizmoTarget ? moveGizmoTarget.position.clone() : null;
@@ -2877,6 +2901,7 @@
         // then nudges the real object, and we resync the (invisible) proxy
         // back onto it so next frame's delta is measured correctly again.
         transformControl.addEventListener('objectChange', () => {
+          invalidate();
           if (moveGizmoTarget && transformControl.object === movePivot) {
             // Stability guard: if the thing we're puppeting was removed from the
             // scene (deleted, sliced, replaced by a boolean) mid-interaction, stop
@@ -2999,7 +3024,39 @@
         banner("Systems Initialized. Ready to build.");
       }
 
-      function animate() { requestAnimationFrame(animate); controls.update(); if (sliceState.armed) updateSlicePlaneHelper(); renderer.render(scene, camera); serviceThumbQueue(); }
+      // Render loop.
+      //
+      // Previously this rendered the 3D scene ~60 times a second no matter what —
+      // including the entire time you were working in the 2D studio, and while the
+      // app sat in the background. On a tablet that's a constant drain for no
+      // benefit. Now it skips the work when the 3D view isn't actually on screen,
+      // and idles at a low tick rate when nothing is moving, waking instantly on any
+      // interaction.
+      // Kept as a hook so callers can signal "something changed" — it also forces a
+      // resize/redraw when returning from the 2D studio.
+      function invalidate() { _needsRender = true; }
+      let _needsRender = true;
+      window.invalidate3D = invalidate;
+
+      function animate() {
+        requestAnimationFrame(animate);
+        // Not visible? Do nothing at all.
+        if (document.hidden) return;
+        const paintEl = document.getElementById('paint-app');
+        if (paintEl && paintEl.style.display !== 'none') return;
+
+        if (controls) controls.update();
+        if (sliceState.armed) updateSlicePlaneHelper();
+
+        // NOTE: deliberately no idle frame-skipping here. A WebGL canvas is cleared
+        // once the browser composites it, so a frame we choose not to draw can leave
+        // the viewport genuinely blank rather than simply unchanged — which is the
+        // "3D goes blank but the objects are still there" failure. The savings above
+        // (nothing at all while hidden or while the 2D studio is showing) are the
+        // safe ones, and they're where the real cost was.
+        renderer.render(scene, camera);
+        serviceThumbQueue();
+      }
 
       // Frame the camera to a set of objects (or all of them), so nothing gets lost
       // off-screen after an operation moves or creates geometry far from the origin.
@@ -5308,6 +5365,11 @@
         //   Spin Z (about vertical) → rotate about Z
         // Starting flat (all sliders at 0) gives a horizontal cut, i.e. the
         // plane's rest orientation is exactly the up/down (Z) plane.
+        // If the plane has been rotated by hand with the gizmo, that wins — the
+        // sliders can't express every orientation, and silently snapping back to
+        // them would undo the drag. Touching any tilt slider clears this and hands
+        // control back to the sliders.
+        if (sliceState.customNormal) return sliceState.customNormal.clone().normalize();
         const base = new THREE.Vector3(0, 0, 1);
         const euler = new THREE.Euler(
           THREE.MathUtils.degToRad(sliceState.rotX),
@@ -5330,6 +5392,35 @@
         const { point, normal } = computeSlicePoint();
         const box = new THREE.Box3().setFromObject(selected[0]);
         const size = box.getSize(new THREE.Vector3()).length() * 0.8 || 60;
+        // While the user is dragging the plane, don't fight them by snapping it back
+        // to the object — instead read the drag back into the offset so the slider
+        // stays in step and the cut happens exactly where the plane was left.
+        if (sliceState.dragging) {
+          // Rotating: the plane's own +Z is the cut normal, so read it straight off
+          // the helper. This is what makes the rotate gizmo actually steer the cut
+          // rather than just spinning the visual.
+          if (transformControl.getMode && transformControl.getMode() === 'rotate') {
+            const n = new THREE.Vector3(0, 0, 1).applyQuaternion(sliceState.planeHelper.quaternion).normalize();
+            if (n.lengthSq() > 0.5) sliceState.customNormal = n;
+          } else {
+            // Moving: project the shift onto the normal to get the offset.
+            const centre = new THREE.Vector3();
+            selected[0].getWorldPosition(centre);
+            const along = sliceState.planeHelper.position.clone().sub(centre).dot(normal);
+            sliceState.offset = along;
+            const off = document.getElementById('slice-off');
+            if (off) {
+              const lo = parseFloat(off.min), hi = parseFloat(off.max);
+              off.value = Math.max(lo, Math.min(hi, along));
+              const lbl = document.getElementById('slice-off-val');
+              if (lbl) lbl.textContent = (Math.round(along * 10) / 10) + ' mm';
+            }
+          }
+          // Keep the size right but leave position/orientation as dragged.
+          sliceState.planeHelper.scale.set(size, size, 1);
+          sliceState.planeHelper.visible = true;
+          return;
+        }
         sliceState.planeHelper.position.copy(point);
         sliceState.planeHelper.scale.set(size, size, 1);
         sliceState.planeHelper.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), normal);
@@ -5341,7 +5432,11 @@
         if (selected.length === 0 || selected[0].userData.isSketch) return banner("⚠️ Select a solid mesh, then arm the slice plane.");
         sliceState.armed = !sliceState.armed;
         btn.classList.toggle('active', sliceState.armed);
-        if (!sliceState.armed) sliceState.planeHelper.visible = false;
+        if (!sliceState.armed) {
+          sliceState.planeHelper.visible = false;
+          // Hand the gizmo back to the object.
+          attachGizmoToSelection();
+        }
         else {
           // Size the offset slider to the actual object so large parts can be sliced
           // anywhere across their span — the old fixed ±100 mm couldn't reach the far
@@ -5356,7 +5451,20 @@
             off.step = reach > 400 ? 1 : 0.5;
           }
         }
-        banner(sliceState.armed ? "Slice plane armed. Set axis / tilt / offset, then Perform Slice." : "Slice disarmed.");
+        if (sliceState.armed) {
+          // Put the move gizmo on the plane itself so the cut can be positioned by
+          // dragging it, not just with the offset slider. Dragging reads back into
+          // the offset, so the slider and the handle always agree.
+          sliceState.customNormal = null;      // start from the slider orientation
+          updateSlicePlaneHelper();
+          transformControl.setSpace('world');
+          if (transformControl.setMode) transformControl.setMode('translate');
+          moveGizmoTarget = null;              // drive the plane directly
+          transformControl.attach(sliceState.planeHelper);
+        }
+        banner(sliceState.armed
+          ? "Slice plane armed — drag to move it, or switch the gizmo to Rotate to angle the cut. Then Perform Slice."
+          : "Slice disarmed.");
       }
 
       // Split one triangle by a plane; append resulting tris to pos/neg arrays and
@@ -5949,7 +6057,14 @@
             c: colAttr ? new THREE.Vector3(colAttr.getX(i), colAttr.getY(i), colAttr.getZ(i)) : null
           });
           for (let i=0;i<pos.count;i+=3){
-            clipTri(readV(i), readV(i+1), readV(i+2), normal, point, posT, negT, cutSeg);
+            const a = readV(i), b = readV(i+1), c = readV(i+2);
+            // Skip zero-area triangles for the same reason the boolean engine does:
+            // a cone's apex is a fan of ~24 collapsed slivers, and feeding those to
+            // the clipper produced meaningless cut segments that left the cap loop
+            // full of holes. This is why slicing a cone was unreliable.
+            const e1 = b.p.clone().sub(a.p), e2 = c.p.clone().sub(a.p);
+            if (e1.cross(e2).lengthSq() < 1e-16) continue;
+            clipTri(a, b, c, normal, point, posT, negT, cutSeg);
           }
           // This body may sit entirely on one side — that's fine when slicing a group;
           // keep it whole rather than aborting the whole operation.
@@ -6455,14 +6570,24 @@
             geo.rotateY(dir * c * amount * 0.9);
             break;
           }
-          case 'bulge':
-            m.makeScale(1, 1, 1 + (1 - c * c) * amount);
-            geo.applyMatrix4(m);
+          // Same centring fix as the 2D side: scale about the glyph's middle so the
+          // letters swell (or pinch) evenly top and bottom, rather than only rising.
+          case 'bulge': {
+            const s = 1 + (1 - c * c) * amount;
+            const mid = size * 0.35;
+            geo.translate(0, 0, -mid);
+            m.makeScale(1, 1, s); geo.applyMatrix4(m);
+            geo.translate(0, 0, mid);
             break;
-          case 'waist':
-            m.makeScale(1, 1, Math.max(0.15, 1 - (1 - c * c) * amount * 0.75));
-            geo.applyMatrix4(m);
+          }
+          case 'waist': {
+            const s = Math.max(0.15, 1 - (1 - c * c) * amount * 0.75);
+            const mid = size * 0.35;
+            geo.translate(0, 0, -mid);
+            m.makeScale(1, 1, s); geo.applyMatrix4(m);
+            geo.translate(0, 0, mid);
             break;
+          }
           case 'skew':
             // Shear the height axis along the run direction.
             m.set(1, 0, 0, 0,  0, 1, 0, 0,  amount * 0.9, 0, 1, 0,  0, 0, 0, 1);
@@ -9953,6 +10078,16 @@
 
         function setGizmoMode(mode, btnId) {
           transformControl.setMode(mode);
+          // While the slice plane is armed the gizmo belongs to the plane, so
+          // switching Move/Rotate must keep it there rather than snapping back to
+          // the object — otherwise Rotate would spin the model instead of the cut.
+          if (sliceState.armed && sliceState.planeHelper) {
+            moveGizmoTarget = null;
+            transformControl.attach(sliceState.planeHelper);
+            ['gizmo-translate','gizmo-rotate','gizmo-scale'].forEach(id => document.getElementById(id).classList.toggle('active', id === btnId));
+            updateFloatingHUD();
+            return;
+          }
           const target = (selected.length > 1 && groupPivot) ? groupPivot : selected[0];
           if (target) attachGizmoTarget(target);
           ['gizmo-translate','gizmo-rotate','gizmo-scale'].forEach(id => document.getElementById(id).classList.toggle('active', id === btnId));
@@ -10228,9 +10363,11 @@
             el.oninput = upd; upd();
           });
         document.getElementById('bld-slice-run').onclick = performSlice;
-        document.getElementById('slice-rx').oninput = e => { sliceState.rotX = parseFloat(e.target.value); document.getElementById('slice-rx-val').textContent = e.target.value + "°"; };
-        document.getElementById('slice-ry').oninput = e => { sliceState.rotY = parseFloat(e.target.value); document.getElementById('slice-ry-val').textContent = e.target.value + "°"; };
-        document.getElementById('slice-rz').oninput = e => { sliceState.rotZ = parseFloat(e.target.value); document.getElementById('slice-rz-val').textContent = e.target.value + "°"; };
+        // Touching a tilt slider clears any hand-rotation, so the sliders take back
+        // control rather than appearing dead after the plane has been dragged round.
+        document.getElementById('slice-rx').oninput = e => { sliceState.customNormal = null; sliceState.rotX = parseFloat(e.target.value); document.getElementById('slice-rx-val').textContent = e.target.value + "°"; };
+        document.getElementById('slice-ry').oninput = e => { sliceState.customNormal = null; sliceState.rotY = parseFloat(e.target.value); document.getElementById('slice-ry-val').textContent = e.target.value + "°"; };
+        document.getElementById('slice-rz').oninput = e => { sliceState.customNormal = null; sliceState.rotZ = parseFloat(e.target.value); document.getElementById('slice-rz-val').textContent = e.target.value + "°"; };
         document.getElementById('slice-off').oninput = e => { sliceState.offset = parseFloat(e.target.value); document.getElementById('slice-off-val').textContent = e.target.value + " mm"; };
         [['slice-keep-both','both'],['slice-keep-pos','positive'],['slice-keep-neg','negative']].forEach(([id,val]) => {
           document.getElementById(id).onclick = () => { sliceState.keep = val; ['slice-keep-both','slice-keep-pos','slice-keep-neg'].forEach(x=>document.getElementById(x).classList.remove('active')); document.getElementById(id).classList.add('active'); };
@@ -11374,6 +11511,9 @@
       //   skew         — a horizontal shear, for an italic or "in motion" look
       //   rise         — a straight diagonal climb
       //   wave         — a sine that runs along the string
+      // Roughly half the cap height — where a glyph's visual centre sits above its
+      // baseline. Used so symmetric warps grow evenly in both directions.
+      const MID_RATIO = 0.35;
       function warpGlyph(ctx, mode, t, amount, size, total) {
         if (!mode || mode === 'none' || !amount) return;
         const c = (t - 0.5) * 2;                    // -1 at the left, +1 at the right
@@ -11385,14 +11525,21 @@
             ctx.rotate(dir * -c * amount * 0.9);
             break;
           }
+          // Bulge and waist scale about the glyph's MIDDLE, not its baseline.
+          // ctx.scale() works about the current origin, which sits on the baseline,
+          // so scaling there only pushed the tops of the letters up and left the
+          // bottoms flat. Shifting to the glyph's centre first makes it grow (or
+          // pinch) evenly above and below, which is what these effects should do.
           case 'bulge': {
             const s = 1 + (1 - c * c) * amount;
-            ctx.scale(1, s);
+            const mid = -size * MID_RATIO;      // glyph centre, in pre-flip canvas space
+            ctx.translate(0, mid); ctx.scale(1, s); ctx.translate(0, -mid);
             break;
           }
           case 'waist': {
-            const s = 1 - (1 - c * c) * amount * 0.75;
-            ctx.scale(1, Math.max(0.15, s));
+            const s = Math.max(0.15, 1 - (1 - c * c) * amount * 0.75);
+            const mid = -size * MID_RATIO;
+            ctx.translate(0, mid); ctx.scale(1, s); ctx.translate(0, -mid);
             break;
           }
           case 'skew':
@@ -15515,6 +15662,14 @@
         const sub = document.querySelector('.brand-sub');
         if (sub) sub.textContent = toPaint ? 'paint studio' : 'CAD suite';
         if (toPaint) { if (!layers.length) init(); fitZoom(); composite(); }
+        else if (window.invalidate3D) {
+          // Coming back to 3D: the render loop idles while the 2D studio is showing,
+          // so explicitly ask for frames or the viewport stays blank until you touch
+          // something. Two passes — one now, one after layout settles.
+          window.invalidate3D();
+          setTimeout(() => { if (window.invalidate3D) window.invalidate3D(); }, 60);
+          window.dispatchEvent(new Event('resize'));
+        }
         if (window.renderHistoryPanel) window.renderHistoryPanel();
         else if (window.dispatchEvent) window.dispatchEvent(new Event('resize'));
       }
