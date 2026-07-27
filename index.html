@@ -6666,16 +6666,30 @@
           }
         });
 
+        // Normalise winding before building the shapes.
+        //
+        // Detecting holes geometrically (above) says WHICH contours are holes, but
+        // ExtrudeGeometry still relies on winding direction to build the side walls
+        // facing the right way: an outer ring must run counter-clockwise and a hole
+        // clockwise. Fonts don't guarantee that, and after re-nesting we were
+        // handing it holes wound the same way as their outer. The extrusion then
+        // came out with inverted faces around every counter, so the mesh was not a
+        // closed solid — which is why cutting text into an object engraved only the
+        // outlines instead of removing the letter bodies.
+        const wind = (pts, wantCCW) => {
+          const ccw = THREE.ShapeUtils.area(pts) > 0;
+          return ccw === wantCCW ? pts : pts.slice().reverse();
+        };
         const out = [];
         items.forEach(c => {
           if (c.depth % 2 === 0) {                          // even → a solid outline
-            c.shape = new THREE.Shape(c.pts);
+            c.shape = new THREE.Shape(wind(c.pts, true));   // outer: counter-clockwise
             out.push(c.shape);
           }
         });
         items.forEach(c => {
           if (c.depth % 2 === 1 && c.parent && c.parent.shape) {   // odd → a hole
-            c.parent.shape.holes.push(new THREE.Path(c.pts));
+            c.parent.shape.holes.push(new THREE.Path(wind(c.pts, false)));  // hole: clockwise
           }
         });
         return out.length ? out : shapes;
