@@ -120,6 +120,21 @@
   <script>
     // ModelSmith version — shown in the header and logged for support.
     window.MODELSMITH_VERSION = 'v1.6.9';
+    // Retire uploaded fonts cached by builds that predate the glyph-conversion
+    // fixes. Their stored form is already broken, so no amount of corrected code
+    // downstream can rescue them — they have to be re-read from the original file.
+    // This runs at top level rather than inside the 3D module so it still happens
+    // when that module can't start.
+    (function retireOldFontCache() {
+      try {
+        const legacy = localStorage.getItem('modelsmith_fonts_v1');
+        if (legacy) {
+          const n = Object.keys(JSON.parse(legacy) || {}).length;
+          localStorage.removeItem('modelsmith_fonts_v1');
+          if (n) window.__fontsRetired = n;
+        }
+      } catch (e) { /* nothing to retire */ }
+    })();
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed:', err));
@@ -3080,6 +3095,36 @@
         camera.near = Math.max(0.1, dist / 1000); camera.far = dist * 1000;
         camera.updateProjectionMatrix();
         controls.update();
+      }
+
+      // Strip zero-area triangles while leaving every other attribute — crucially
+      // the normals — untouched. Degenerate slivers are what break the boolean
+      // solver; recomputing normals is not needed and actively harms curved shapes.
+      function dropDegenerateTriangles(geometry) {
+        const src = geometry.index ? geometry.toNonIndexed() : geometry;
+        const pos = src.attributes.position;
+        const keep = [];
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+        for (let i = 0; i < pos.count; i += 3) {
+          a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i+1); c.fromBufferAttribute(pos, i+2);
+          if (b.clone().sub(a).cross(c.clone().sub(a)).lengthSq() >= 1e-16) keep.push(i);
+        }
+        if (keep.length * 3 === pos.count) return src;   // nothing to drop
+        const out = new THREE.BufferGeometry();
+        const copy = (name, size) => {
+          const at = src.attributes[name];
+          if (!at) return;
+          const arr = new Float32Array(keep.length * 3 * size);
+          let o = 0;
+          keep.forEach(i => {
+            for (let j = 0; j < 3; j++) {
+              for (let k = 0; k < size; k++) arr[o++] = at.array[(i + j) * size + k];
+            }
+          });
+          out.setAttribute(name, new THREE.BufferAttribute(arr, size));
+        };
+        copy('position', 3); copy('normal', 3); copy('color', 3); copy('uv', 2);
+        return out;
       }
 
       function makeGeometryCSGReady(geometry) {
@@ -6368,7 +6413,17 @@
             saveUploadedFont(key, family, threeFont);
 
             addFontOption(key, family, true);
-            banner(`Font "${family}" ready — type text and Generate.`);
+            // Offer it in the 2D studio too — the store is shared, so a font
+            // uploaded on either side should be usable on both.
+            try {
+              const psel = document.getElementById('ps-font');
+              if (psel && !psel.querySelector('option[value="' + key + '"]')) {
+                const o2 = document.createElement('option');
+                o2.value = key; o2.textContent = family + ' (uploaded)';
+                psel.appendChild(o2);
+              }
+            } catch (e) { /* 2D not ready yet; it reads the store on init anyway */ }
+            banner(`Font "${family}" ready — available in both 3D and 2D.`);
           } catch (err) {
             console.error('Font upload failed:', err);
             banner("⚠️ Couldn't read that font: " + ((err && err.message) || 'unrecognised format') + ". A standard .ttf usually works best.");
@@ -6382,7 +6437,13 @@
       // We store the CONVERTED three.js font data (not the raw file) — it's compact
       // JSON and skips re-parsing on load. Kept in localStorage so uploads survive
       // closing the app.
-      const FONT_STORE_KEY = 'modelsmith_fonts_v1';
+      // Bumped to v2. Fonts uploaded before the glyph-conversion fixes were cached
+      // in their broken form, so they stayed shattered forever even after the code
+      // was corrected — re-uploading was the only cure, and nothing said so. A new
+      // key retires those stale conversions; the old entry is cleaned up and the
+      // user is told to re-add the font once.
+      const FONT_STORE_KEY = 'modelsmith_fonts_v2';
+
 
       function addFontOption(key, family, select) {
         const sel = document.getElementById('text3d-font');
@@ -6553,6 +6614,78 @@
         }, 30);
       }
 
+      // ── Glyph hole detection ────────────────────────────────────────────────
+      // three.js decides which contours of a glyph are holes purely from their
+      // winding direction. Fonts do not agree on that convention, and several of
+      // the built-in ones wind a counter the same way as its outer ring — so the
+      // hole in e, d, a, o, etc. came back as a SEPARATE SOLID sitting inside the
+      // letter, which is the shattered, filled-in look those glyphs had.
+      //
+      // Winding is unreliable, so this ignores it and works out nesting
+      // geometrically: a contour enclosed by an odd number of other contours is a
+      // hole, by the standard even-odd rule. That holds no matter how the font was
+      // authored, which is why this fixes every font rather than one at a time.
+      function pointInContour(pt, pts) {
+        let inside = false;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+          if (((yi > pt.y) !== (yj > pt.y)) &&
+              (pt.x < (xj - xi) * (pt.y - yi) / ((yj - yi) || 1e-12) + xi)) inside = !inside;
+        }
+        return inside;
+      }
+      function renestGlyphShapes(shapes, divisions) {
+        // Flatten every contour the font gave us, however it chose to group them.
+        // `divisions` sets how finely curved segments are sampled — this is what
+        // actually controls how smooth round letters look.
+        const d = Math.max(4, divisions || 12);
+        const contours = [];
+        shapes.forEach(s => {
+          try { contours.push(s.extractPoints(d).shape); } catch (e) { return; }
+          (s.holes || []).forEach(h => { try { contours.push(h.getPoints(d)); } catch (e) {} });
+        });
+        const items = contours
+          .filter(p => p && p.length > 2)
+          .map(p => ({ pts: p, area: Math.abs(THREE.ShapeUtils.area(p)) }))
+          .filter(c => c.area > 1e-9)
+          .sort((a, b) => b.area - a.area);      // biggest first, so parents precede children
+        if (!items.length) return shapes;
+
+        // Depth = how many other contours enclose this one.
+        items.forEach((c, i) => {
+          c.depth = 0; c.parent = null;
+          const probe = c.pts[0];
+          for (let j = 0; j < items.length; j++) {
+            if (j === i) continue;
+            if (items[j].area <= c.area) continue;          // only larger can contain
+            if (pointInContour(probe, items[j].pts)) {
+              c.depth++;
+              // nearest (smallest) enclosing contour is the real parent
+              if (!c.parent || items[j].area < c.parent.area) c.parent = items[j];
+            }
+          }
+        });
+
+        const out = [];
+        items.forEach(c => {
+          if (c.depth % 2 === 0) {                          // even → a solid outline
+            c.shape = new THREE.Shape(c.pts);
+            out.push(c.shape);
+          }
+        });
+        items.forEach(c => {
+          if (c.depth % 2 === 1 && c.parent && c.parent.shape) {   // odd → a hole
+            c.parent.shape.holes.push(new THREE.Path(c.pts));
+          }
+        });
+        return out.length ? out : shapes;
+      }
+      // Build glyph shapes with holes resolved properly.
+      function textShapes(font, text, size, divisions) {
+        const raw = font.generateShapes(text, size);
+        try { return renestGlyphShapes(raw, divisions); } catch (e) { return raw; }
+      }
+
       // Warp a 3D glyph the same way the 2D studio warps its text. `t` is how far
       // along the string this glyph sits (0..1). The transform is applied to the
       // whole glyph rather than its individual points, so outlines stay crisp and
@@ -6628,8 +6761,9 @@
           const g = font.data.glyphs[ch];
           const adv = (g && g.ha ? g.ha : (font.data.resolution || 1000) * 0.5) * scale;
           if (g && g.o && ch.trim()) {
-            const geo = new THREE.TextGeometry(ch, {
-              font, size, height: depth, curveSegments: 6, bevelEnabled: false
+            const segs = Math.max(8, Math.min(24, Math.round(size * 0.9)));
+            const geo = new THREE.ExtrudeGeometry(textShapes(font, ch, size, segs), {
+              depth, bevelEnabled: false, curveSegments: segs, steps: 1
             });
             geo.rotateX(Math.PI / 2);
             geo.translate(cursor, 0, 0);
@@ -6639,21 +6773,31 @@
           cursor += adv;
         }
         if (!parts.length) return null;
-        // Merge into a single buffer geometry.
+        // Merge into a single buffer geometry, carrying the NORMALS across as well.
+        // The warp transforms are applied with applyMatrix4/translate/rotate, all of
+        // which update normals correctly — so the per-glyph normals are still right
+        // and keep curved letters smoothly shaded. Previously only positions were
+        // merged and the normals were recomputed flat, which faceted every curve.
         let totalVerts = 0;
         parts.forEach(p => { totalVerts += p.attributes.position.count; });
         const pos = new Float32Array(totalVerts * 3);
-        let off = 0;
+        const nrm = new Float32Array(totalVerts * 3);
+        let off = 0, hasNormals = true;
         parts.forEach(p => {
-          const src = p.toNonIndexed ? (p.index ? p.toNonIndexed() : p) : p;
+          const src = p.index ? p.toNonIndexed() : p;
           const a = src.attributes.position;
+          const n = src.attributes.normal;
+          if (!n) hasNormals = false;
           for (let i = 0; i < a.count; i++) {
-            pos[off++] = a.getX(i); pos[off++] = a.getY(i); pos[off++] = a.getZ(i);
+            pos[off] = a.getX(i); pos[off+1] = a.getY(i); pos[off+2] = a.getZ(i);
+            if (n) { nrm[off] = n.getX(i); nrm[off+1] = n.getY(i); nrm[off+2] = n.getZ(i); }
+            off += 3;
           }
         });
         const out = new THREE.BufferGeometry();
         out.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, off), 3));
-        out.computeVertexNormals();
+        if (hasNormals) out.setAttribute('normal', new THREE.BufferAttribute(nrm.subarray(0, off), 3));
+        else out.computeVertexNormals();
         parts.forEach(p => p.dispose());
         return out;
       }
@@ -6676,8 +6820,16 @@
             ? buildWarpedTextGeometry(font, text, size, depth, warp, amount)
             : null;
           if (!geo) {
-            geo = new THREE.TextGeometry(text, {
-              font, size, height: depth, curveSegments: 6, bevelEnabled: false
+            // curveSegments controls how finely each curved part of a glyph is
+            // approximated. It was 6, which is very coarse — the bowls of letters
+            // like e, a, c and d came out visibly polygonal, and the flat facets
+            // caught the light unevenly. Scale it with the text size so small text
+            // stays cheap and large text prints smooth.
+            const segs = Math.max(8, Math.min(24, Math.round(size * 0.9)));
+            // Extrude our own hole-corrected shapes rather than using TextGeometry,
+            // which would re-derive the holes from winding and reintroduce the bug.
+            geo = new THREE.ExtrudeGeometry(textShapes(font, text, size, segs), {
+              depth, bevelEnabled: false, curveSegments: segs, steps: 1
             });
             geo.rotateX(Math.PI / 2);
           }
@@ -6688,7 +6840,14 @@
           geo.boundingBox.getCenter(center);
           geo.translate(-center.x, -center.y, -center.z);
 
-          const clean = makeGeometryCSGReady(geo);
+          // Deliberately NOT makeGeometryCSGReady() here. That helper recomputes
+          // vertex normals, and on a non-indexed soup that forces flat shading —
+          // which turns every curve segment of a glyph into a visible facet and is
+          // why 3D text looked chunky and unevenly lit. TextGeometry already
+          // supplies correct normals (smooth around curves, hard at the extrusion
+          // edges), so they're kept. Degenerate triangles are dropped instead,
+          // which is the part that actually matters for later booleans.
+          const clean = dropDegenerateTriangles(geo);
           const mesh = new THREE.Mesh(clean, new THREE.MeshStandardMaterial({ color: 0xb0b8c8, roughness: 0.3 }));
           mesh.position.z = 12; mesh.castShadow = true; mesh.receiveShadow = true;
           scene.add(mesh); objects.push(mesh);
@@ -10426,6 +10585,13 @@
 
         // ── 3D Text ───────────────────────────────────────────────────
         document.getElementById('bld-text3d-run').onclick = generate3DText;
+        // If stale (pre-fix) uploaded fonts were discarded on load, say so once —
+        // otherwise the font would just silently vanish from the list.
+        if (window.__fontsRetired) {
+          const n = window.__fontsRetired; window.__fontsRetired = 0;
+          setTimeout(() => banner(n + ' uploaded font' + (n===1?'':'s') +
+            ' had to be re-read after a glyph fix — please upload again.'), 1200);
+        }
         const t3dAmt = document.getElementById('text3d-warp-amt');
         const t3dAmtVal = document.getElementById('text3d-warp-amt-val');
         if (t3dAmt && t3dAmtVal) {
@@ -11607,7 +11773,7 @@
         if (paintFonts[key]) return Promise.resolve(paintFonts[key]);
         // uploaded fonts are already converted and stored by the 3D side
         try {
-          const store = JSON.parse(localStorage.getItem('modelsmith_fonts_v1') || '{}');
+          const store = JSON.parse(localStorage.getItem('modelsmith_fonts_v2') || '{}');
           if (store[key] && store[key].data) { paintFonts[key] = store[key].data; return Promise.resolve(paintFonts[key]); }
         } catch (e) {}
         // Built-ins are embedded in the page — no network needed.
@@ -11630,7 +11796,7 @@
         // built-ins are embedded in the page (see MODELSMITH_FONTS)
         Object.keys(window.MODELSMITH_FONTS || {}).forEach(k => add(k, window.MODELSMITH_FONTS[k].family));
         try {
-          const store = JSON.parse(localStorage.getItem('modelsmith_fonts_v1') || '{}');
+          const store = JSON.parse(localStorage.getItem('modelsmith_fonts_v2') || '{}');
           Object.keys(store).forEach(k => {
             if (store[k] && store[k].data) add(k, (store[k].family || k) + ' (uploaded)');
           });
