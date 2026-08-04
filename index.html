@@ -118,6 +118,97 @@
     })();
   </script>
   <script>
+    // ── Storage (IndexedDB) ──────────────────────────────────────────────────
+    // localStorage caps out around 5MB across the WHOLE app — 3D sessions, paint
+    // layers, brushes, fonts and PSD imports all shared that budget, and a dense
+    // model would silently fail to autosave. IndexedDB gives orders of magnitude
+    // more room and stores real binary/structured data rather than strings.
+    //
+    // Same privacy position as before: this is a database inside the browser on
+    // this device. Nothing is transmitted, and only pages from this exact origin
+    // can read it. It is NOT separately encrypted — the device's own disk
+    // encryption is what protects it at rest.
+    (function () {
+      const DB_NAME = 'modelsmith';
+      const DB_VERSION = 1;
+      const STORE = 'kv';          // autosaves + preferences
+      const SAVES = 'saves';       // named save states
+      let dbp = null;
+
+      function open() {
+        if (dbp) return dbp;
+        dbp = new Promise((resolve, reject) => {
+          let req;
+          try { req = indexedDB.open(DB_NAME, DB_VERSION); }
+          catch (e) { return reject(e); }
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+            if (!db.objectStoreNames.contains(SAVES)) {
+              const s = db.createObjectStore(SAVES, { keyPath: 'id' });
+              s.createIndex('savedAt', 'savedAt');
+            }
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        return dbp;
+      }
+      const tx = (store, mode, fn) => open().then(db => new Promise((resolve, reject) => {
+        const t = db.transaction(store, mode);
+        const r = fn(t.objectStore(store));
+        t.oncomplete = () => resolve(r && r.result !== undefined ? r.result : undefined);
+        t.onerror = () => reject(t.error);
+        t.onabort = () => reject(t.error);
+      }));
+
+      const Store = {
+        available: (() => { try { return !!window.indexedDB; } catch (e) { return false; } })(),
+        get:  (k)    => tx(STORE, 'readonly',  s => s.get(k)),
+        set:  (k, v) => tx(STORE, 'readwrite', s => s.put(v, k)),
+        del:  (k)    => tx(STORE, 'readwrite', s => s.delete(k)),
+
+        // ── Named save states ────────────────────────────────────────────────
+        // Undo history answers "what did I just do"; these answer "what did we
+        // agree on last Tuesday". Each is a full snapshot with a name you choose.
+        listSaves: () => tx(SAVES, 'readonly', s => s.getAll()).then(a =>
+          (a || []).sort((x, y) => y.savedAt - x.savedAt)),
+        getSave:   (id) => tx(SAVES, 'readonly',  s => s.get(id)),
+        putSave:   (rec) => tx(SAVES, 'readwrite', s => s.put(rec)),
+        delSave:   (id) => tx(SAVES, 'readwrite', s => s.delete(id)),
+
+        // How much room we're actually using, when the browser will say.
+        usage: async () => {
+          try {
+            if (navigator.storage && navigator.storage.estimate) {
+              const e = await navigator.storage.estimate();
+              return { used: e.usage || 0, quota: e.quota || 0 };
+            }
+          } catch (e) {}
+          return null;
+        },
+
+        // Move anything already in localStorage across, once. The old copy is
+        // left in place as a fallback until the new one is proven to load.
+        migrate: async (keys) => {
+          let moved = 0;
+          for (const k of keys) {
+            try {
+              const existing = await Store.get(k);
+              if (existing !== undefined) continue;         // already migrated
+              const raw = localStorage.getItem(k);
+              if (raw == null) continue;
+              await Store.set(k, raw);
+              moved++;
+            } catch (e) { /* skip this key, keep going */ }
+          }
+          return moved;
+        }
+      };
+      window.Store = Store;
+    })();
+  </script>
+  <script>
     // ModelSmith version — shown in the header and logged for support.
     window.MODELSMITH_VERSION = 'v1.6.9';
     // Retire uploaded fonts cached by builds that predate the glyph-conversion
@@ -803,6 +894,236 @@
     .workspace { flex: 1; position: relative; height: 100%; outline: none; touch-action: none; }
     .viewport { width: 100%; height: 100%; display: block; touch-action: none; }
 
+    /* Tool options live INSIDE the transform bar rather than in a second floating
+       panel — two bars stacked near the bottom of the viewport overlapped each
+       other and covered the model. Only the group for the current tool shows. */
+    .t3-hud-group { display: none !important; align-items: center; gap: 6px; }
+    .t3-hud-group.show { display: flex !important; }
+    /* Divider before the tool options, matching the bar's other separators. */
+    .hud-sep { width: 1px; height: 24px; background: var(--line); flex-shrink: 0; }
+    .t3-sep { display: none; }
+    .t3-sep.show { display: block; }
+    .floating-hud .t3-hud-group input[type=range] { width: 92px; }
+    .floating-hud .t3-hud-group input[type=color] { width: 26px; height: 26px; padding: 0;
+      border-radius: 5px; border: 1px solid var(--line); background: none; cursor: pointer; }
+    .hud-val { font-family: var(--mono); font-size: 10.5px; color: var(--accent); min-width: 38px; }
+
+    /* ── 3D: menu bar owns these commands ──────────────────────────────────
+       Same rule as the 2D studio — every command has exactly ONE home, and that
+       home is the menu bar. What the panels keep is SETTINGS (export filename,
+       smoothing strength, align axis, mirror-keep) because those are the
+       parameters the menu commands read; what they lose is the duplicated
+       buttons. The elements stay in the DOM because the menu items click them. */
+    .app-container.menus #sec-primitives,
+    .app-container.menus #sec-booleans { display: none !important; }
+    /* These three open as dialogs from the Create menu. The sections are MOVED
+       into the dialog when it opens (not duplicated), so they're hidden here only
+       while they're sitting in the sidebar. */
+    .app-container.menus #sec-text3d,
+    .app-container.menus #sec-img3d,
+    .app-container.menus #sec-thread { display: none !important; }
+    /* ...but visible once inside the dialog. */
+    #bd-controls #sec-text3d,
+    #bd-controls #sec-img3d,
+    #bd-controls #sec-thread { display: block !important; }
+    .app-container.menus #bld-select-all,
+    .app-container.menus #bld-select-none,
+    .app-container.menus #bld-frame-sel,
+    .app-container.menus #bld-frame-all,
+    .app-container.menus #bld-multiselect-toggle,
+    .app-container.menus #bld-mirror-x,
+    .app-container.menus #bld-mirror-y,
+    .app-container.menus #bld-mirror-z,
+    .app-container.menus #bld-group,
+    .app-container.menus #bld-ungroup,
+    .app-container.menus #bld-merge,
+    .app-container.menus #bld-align-min,
+    .app-container.menus #bld-align-mid,
+    .app-container.menus #bld-align-max,
+    .app-container.menus #bld-distribute,
+    .app-container.menus #bld-smooth-run,
+    .app-container.menus #bld-repair-mesh,
+    .app-container.menus #bld-export-stl,
+    .app-container.menus #bld-export-obj,
+    .app-container.menus #bld-export-3mf,
+    .app-container.menus #bld-session-save,
+    .app-container.menus #bld-session-clear,
+    .app-container.menus #bld-duplicate,
+    .app-container.menus #bld-settle,
+    .app-container.menus #bld-delete { display: none !important; }
+
+    /* ── 3D tool flyouts ───────────────────────────────────────────────────
+       Tools with modes (paint brush/face/object, slice, fillet) get a chevron
+       that opens a menu, exactly like the 2D rail. The modes existed already —
+       they were just buried in a panel you had to find first. */
+    .t3-slot { position: relative; display: flex; align-items: center; }
+    .t3-chev { background: none; border: none; color: var(--text-muted); cursor: pointer;
+      padding: 2px 3px; margin-left: -5px; border-radius: 4px; display: flex; align-items: center; }
+    .t3-chev:hover { color: var(--accent); background: var(--s-750); }
+    .t3-chev svg { width: 11px; height: 11px; }
+    .t3-slot.active .t3-chev { color: var(--accent); }
+    .t3-flyout { position: fixed; z-index: 260; background: var(--s-850);
+      border: 1px solid var(--line); border-radius: 8px; padding: 5px;
+      box-shadow: 0 16px 44px rgba(0,0,0,.55); min-width: 178px; }
+    .t3-fly-btn { width: 100%; display: flex; align-items: center; gap: 9px;
+      background: none; border: none; color: var(--text); cursor: pointer;
+      font-family: var(--font); font-size: 12px; padding: 8px 9px; border-radius: 5px;
+      text-align: left; }
+    .t3-fly-btn:hover { background: var(--accent-dim); }
+    .t3-fly-btn.active { background: var(--accent-dim); color: var(--accent); }
+    .t3-fly-btn small { display: block; color: var(--text-muted); font-size: 10px; margin-top: 1px; }
+    .t3-fly-btn .t3-fly-txt { flex: 1; min-width: 0; }
+
+    /* Export dialog — same shell as the mask dialog. */
+    .exp-name-row { display: flex; align-items: center; gap: 0; margin-bottom: 4px; }
+    .exp-name-row input { flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+    .exp-ext { font-family: var(--mono); font-size: 11.5px; color: var(--text-muted);
+      background: var(--s-800); border: 1px solid var(--line); border-left: none;
+      padding: 7px 10px; border-radius: 0 5px 5px 0; }
+
+    .mi-icon { display: flex; width: 16px; flex-shrink: 0; color: var(--text-muted); }
+    .mi-icon svg { width: 16px; height: 16px; }
+    .menu-item:hover .mi-icon { color: var(--accent); }
+
+    /* ── Builder dialogs (3D text / Image → 3D / Thread) ───────────────────
+       These panels have enough settings to deserve a proper window, and a live
+       preview so you can see the result before committing it to the scene. The
+       existing section is MOVED into the dialog rather than duplicated, so there
+       is still exactly one set of controls; it's moved back on close. */
+    .bd-dialog { position: fixed; z-index: 320; display: none;
+      top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: min(760px, calc(100vw - 28px)); height: min(560px, calc(100vh - 28px));
+      background: var(--s-850); border: 1px solid var(--line); border-radius: 12px;
+      box-shadow: 0 24px 70px rgba(0,0,0,.6); flex-direction: column; overflow: hidden; }
+    .bd-dialog.open { display: flex; }
+    .bd-head { display: flex; align-items: center; gap: 9px; padding: 12px 15px;
+      border-bottom: 1px solid var(--line); flex-shrink: 0; }
+    .bd-head b { font-size: 13px; flex: 1; color: var(--text); }
+    .bd-body { flex: 1; display: flex; min-height: 0; }
+    .bd-preview-col { width: 300px; flex-shrink: 0; border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; padding: 14px; gap: 8px; }
+    .bd-preview { flex: 1; min-height: 0; border-radius: 8px; border: 1px solid var(--line);
+      background: #14171c; display: block; width: 100%; }
+    .bd-preview-cap { font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase;
+      color: var(--text-muted); flex-shrink: 0; }
+    .bd-controls { flex: 1; overflow-y: auto; padding: 14px 16px; min-width: 0; }
+    .bd-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 11px 15px;
+      border-top: 1px solid var(--line); flex-shrink: 0; }
+    @media (max-width: 700px) {
+      .bd-body { flex-direction: column; }
+      .bd-preview-col { width: auto; border-right: none; border-bottom: 1px solid var(--line); height: 190px; }
+    }
+
+    /* ── Layer mask dialog ─────────────────────────────────────────────────
+       Mask controls used to sit in a subsection of the Layers panel, away from
+       the layer they act on. They now open from the layer's own row. */
+    .mask-backdrop { position: fixed; inset: 0; background: rgba(8,10,13,.62);
+      z-index: 300; display: none; }
+    .mask-backdrop.open { display: block; }
+    .mask-dialog { position: fixed; z-index: 310; display: none;
+      top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: min(340px, calc(100vw - 32px));
+      background: var(--s-850); border: 1px solid var(--line);
+      border-radius: 10px; box-shadow: 0 24px 70px rgba(0,0,0,.6); overflow: hidden; }
+    .mask-dialog.open { display: block; }
+    .mask-head { display: flex; align-items: center; gap: 9px; padding: 12px 14px;
+      border-bottom: 1px solid var(--line); }
+    .mask-head b { font-size: 12.5px; flex: 1; color: var(--text); }
+    .mask-close { background: none; border: none; color: var(--text-muted);
+      cursor: pointer; padding: 4px; border-radius: 4px; display: flex; }
+    .mask-close:hover { background: var(--s-750); color: var(--text); }
+    .mask-close svg { width: 15px; height: 15px; }
+    .mask-body { padding: 13px 14px 15px; }
+    .mask-preview { width: 100%; height: 120px; border-radius: 6px; display: block;
+      border: 1px solid var(--line); margin-bottom: 12px; background: var(--s-900); }
+
+    /* Foreground / background pair, the way both editors show it. */
+    .dk-fgbg { position: relative; height: 62px; margin-bottom: 12px; }
+    .dk-fgbg-sw { position: absolute; width: 40px; height: 40px; border-radius: 6px;
+      border: 2px solid var(--ctl-border, var(--line)); cursor: pointer; padding: 0; }
+    .dk-fgbg-sw.dk-fg { top: 0; left: 0; z-index: 2; }
+    .dk-fgbg-sw.dk-bg { top: 18px; left: 22px; z-index: 1; }
+    .dk-fgbg-sw:hover { border-color: var(--accent); }
+    .dk-fgbg-swap { position: absolute; top: 0; left: 74px; background: none; border: none;
+      color: var(--text-muted); cursor: pointer; padding: 5px; border-radius: 4px; }
+    .dk-fgbg-swap:hover { color: var(--accent); background: var(--s-750); }
+    .dk-fgbg-swap svg { width: 15px; height: 15px; }
+    /* Inside its own tab the swatch dock has room, so widen the grid. */
+    #psec-colour ~ #dock-swatches .dk-sw-grid,
+    .dock#dock-swatches .dk-sw-grid { grid-template-columns: repeat(9, 1fr); }
+
+    /* ── Menu bar (2D studio) ───────────────────────────────────────────────
+       Photoshop and GIMP both put File / Edit / Layer / Filter across the top.
+       Commands that were scattered between tabs, popovers and buttons are
+       gathered here so they're findable in the place people already look. */
+    /* The container is a flex ROW (workspace | sidebar). With a menu bar the 2D
+       app becomes a column: menu on top, then that row underneath. */
+    /* Any workspace with a menu bar becomes a column: menu on top, then the
+       workspace/sidebar row underneath. Applies to both 2D and 3D. */
+    .app-container.menus { flex-direction: column; }
+    .app-container.menus > .workspace,
+    .app-container.menus > .sidebar { height: auto; }
+    .app-container.menus .pa-body { display: flex; flex: 1; min-height: 0; width: 100%; }
+    .menubar { display: none; align-items: center; gap: 1px; padding: 0 6px;
+      background: var(--s-880, var(--s-850)); border-bottom: 1px solid var(--line);
+      height: 28px; flex-shrink: 0; position: relative; z-index: 120; }
+    .app-container.menus .menubar { display: flex; }
+    .menu-btn { background: none; border: none; color: var(--text-dim); cursor: pointer;
+      font-family: var(--font); font-size: 11.5px; padding: 5px 10px; border-radius: 4px;
+      transition: background .1s ease, color .1s ease; }
+    .menu-btn:hover, .menu-btn.open { background: var(--s-750); color: var(--text); }
+    .menu-drop { position: absolute; top: 28px; min-width: 210px; z-index: 130;
+      background: var(--s-850); border: 1px solid var(--line-strong, var(--line));
+      border-radius: 0 0 7px 7px; box-shadow: 0 14px 40px rgba(0,0,0,.55);
+      padding: 5px; display: none; }
+    .menu-drop.open { display: block; }
+    .menu-item { width: 100%; display: flex; align-items: center; gap: 10px;
+      background: none; border: none; color: var(--text); cursor: pointer;
+      font-family: var(--font); font-size: 12px; padding: 7px 9px; border-radius: 4px;
+      text-align: left; }
+    .menu-item:hover { background: var(--accent-dim); }
+    .menu-item .mi-key { margin-left: auto; font-family: var(--mono); font-size: 10px;
+      color: var(--text-muted); }
+    .menu-item:disabled { opacity: .4; cursor: default; }
+    .menu-item:disabled:hover { background: none; }
+    .menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
+    .menu-label { font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase;
+      color: var(--text-muted); padding: 6px 9px 3px; font-weight: 650; }
+
+    /* ── 2D studio: stacked docks ──────────────────────────────────────────
+       Photoshop and GIMP show layers, history and swatches at the same time in
+       a stacked column, so you can see the layer thumbnails while picking a
+       colour and stepping back through history. Hiding each behind a tab meant
+       constant switching just to do one edit. These docks collapse individually
+       and remember their state. */
+    .dock { border-bottom: 1px solid var(--line); }
+    .dock-head { width: 100%; display: flex; align-items: center; gap: 7px;
+      background: var(--s-800); border: none; cursor: pointer; padding: 8px 10px;
+      color: var(--text-dim); font-family: var(--font); font-size: 10.5px;
+      font-weight: 650; letter-spacing: .8px; text-transform: uppercase;
+      text-align: left; transition: color .12s ease; }
+    .dock-head:hover { color: var(--text); }
+    .dock-head > span:first-of-type { flex: 1; }
+    .dock-chev { width: 12px; height: 12px; flex-shrink: 0; color: var(--text-muted);
+      transition: transform .15s ease; }
+    .dock.collapsed .dock-chev { transform: rotate(-90deg); }
+    .dock-body { padding: 9px 10px 12px; }
+    .dock.collapsed .dock-body { display: none; }
+    .dock-count { font-family: var(--mono); font-size: 9px; color: var(--accent);
+      background: var(--accent-dim); border-radius: 20px; padding: 2px 7px;
+      letter-spacing: 0; text-transform: none; }
+
+    /* Swatch grid, always visible rather than hidden in the colour popover. */
+    .dk-sw-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+    .dk-sw { aspect-ratio: 1; border-radius: 4px; border: 1px solid var(--line);
+      cursor: pointer; padding: 0; position: relative; transition: transform .1s ease; }
+    .dk-sw:hover { transform: scale(1.12); border-color: var(--accent); z-index: 2; }
+    .dk-sw-cur { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .dk-sw-chip { width: 30px; height: 30px; border-radius: 5px; border: 1px solid var(--ctl-border);
+      flex-shrink: 0; }
+
+    /* History list — a real step list you can jump around in. */
+
     /* ── Sidebar / properties panel ─────────────────────────────────── */
     .sidebar {
       width: 244px; background: var(--s-800); border-right: 1px solid var(--line);
@@ -1085,6 +1406,23 @@
       cursor: pointer; border-radius: 3px; font-size: 11px; line-height: 1; padding: 1px 4px;
       flex-shrink: 0; margin-left: 2px; }
     .layer-group-toggle:hover { color: var(--accent); border-color: var(--accent); }
+    /* Print check report */
+    .pc-summary { font-size: 11.5px; color: var(--text-dim); padding: 7px 9px; margin-bottom: 7px;
+      background: var(--s-800); border: 1px solid var(--line); border-radius: 5px; }
+    .pc-row { display: flex; gap: 8px; align-items: flex-start; font-size: 11.5px;
+      color: var(--text-dim); padding: 7px 9px; margin-bottom: 5px; line-height: 1.45;
+      background: var(--s-800); border: 1px solid var(--line); border-radius: 5px; }
+    .pc-row b { color: var(--text); font-weight: 600; }
+    .pc-detail { color: var(--text-muted); font-size: 10.5px; }
+    .pc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px;
+      background: var(--text-muted); }
+    .pc-ok   .pc-dot { background: #6cc07a; }
+    .pc-warn .pc-dot { background: var(--accent); }
+    .pc-bad  .pc-dot { background: #e06c6c; }
+    .pc-ok   { border-color: rgba(108,192,122,.35); }
+    .pc-warn { border-color: rgba(194,137,95,.4); }
+    .pc-bad  { border-color: rgba(224,108,108,.45); }
+
     /* Baseline for every text/number field. Without this the browser default
        (white box, black text, blue focus ring) showed through on the dimension
        entries, the transform HUD and the colour fields — jarring against the dark
@@ -1186,6 +1524,18 @@
     .fx-item input[type="checkbox"] { flex-shrink: 0; cursor: pointer; }
     .fx-item-name { flex: 1; }
     .fx-detail { flex: 1; overflow-y: auto; padding: 14px 16px; min-width: 0; }
+    /* Live preview inside the effects dialog — the same idea as the mask
+       dialog's preview: see what the layer looks like without closing the
+       dialog and hunting for it behind the panel. */
+    .fx-side { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .fx-preview-canvas { width: calc(100% - 32px); height: 150px; margin: 14px 16px 0;
+      border-radius: 8px; border: 1px solid var(--line); background: var(--s-900);
+      display: block; flex-shrink: 0; }
+    .fx-preview-cap { font-size: 9.5px; letter-spacing: .8px; text-transform: uppercase;
+      color: var(--text-muted); margin: 6px 16px 0; flex-shrink: 0; }
+    .fx-side .fx-detail { flex: 1; }
+
+
     .fx-detail-title { font-size: 14px; font-weight: 600; color: var(--text);
       margin-bottom: 4px; letter-spacing: .2px; }
     .fx-detail-hint { font-size: 10.5px; color: var(--text-muted); line-height: 1.5;
@@ -1439,6 +1789,92 @@
     .layer-item.active { border-color: var(--accent); background: var(--accent-dim); }
     .layer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; display: flex; align-items: center; gap: 7px; }
     .layer-name svg { width: 13px; height: 13px; color: var(--sketch); flex-shrink: 0; }
+
+    /* ── Menu bar owns these commands ──────────────────────────────────────
+       Commands that live in File / Edit / Layer are hidden from the side panels
+       so each one has exactly ONE home. The elements stay in the DOM because the
+       menu items click them — removing them outright would mean rewriting a
+       dozen inline handlers, which is more risk than this is worth. What the
+       panels keep is SETTINGS (export filename, format, quality, blend mode,
+       opacity); what they lose is duplicated ACTIONS. */
+    .paint-app.menus #lsub-new { display: none; }
+    /* Mask controls now live in the dialog opened from a layer's own row, so the
+       subsection is hidden. Its buttons remain in the DOM as the dialog's
+       targets — one implementation, reached from the layer it belongs to. */
+    .paint-app #lsub-mask { display: none; }
+    .paint-app.menus #psec-files .pf-import-block { display: none; }
+    .paint-app.menus #pf-png,
+    .paint-app.menus #pf-png-layer,
+    .paint-app.menus #pf-to3d,
+    .paint-app.menus #pf-to3d-tex,
+    .paint-app.menus #pf-to3d-plane,
+    .paint-app.menus #pf-clear { display: none; }
+    .paint-app.menus #psec-files .pf-hidden-label { display: none; }
+
+    /* ── Layer rows: bigger thumbnails + drag to reorder ───────────────────
+       The 26px thumbnail was too small to tell layers apart once a document had
+       more than a few, and reordering meant hunting for Move up / Move down
+       buttons. These rows show a proper preview and can be dragged. */
+    /* The 2D panel gets more width: a 44px thumbnail, name, meta line and two
+       action buttons don't fit the 244px column the 3D panel was sized for. */
+    .paint-app .sidebar { width: 292px; }
+    .layer-row { padding: 7px 8px; gap: 8px; }
+    /* The name column must be allowed to shrink AND to show its text — without
+       min-width:0 a flex child refuses to shrink below its content, which pushed
+       the name into an ellipsis even when there was room. */
+    /* A later rule sets .layer-name{flex:1}, which is meant for the 3D panel's
+       flat rows. Inside the 2D row the name now lives in an info column, so the
+       flex belongs to that column and the name should simply fill it. */
+    .layer-row .layer-info { flex: 1 1 auto; min-width: 0; }
+    .layer-row .layer-name { flex: 0 1 auto; min-width: 0; display: block;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Backing store is 2x for sharpness; these fix the DISPLAY size. Without
+       width/height here the canvas renders at its attribute size (88px). */
+    .layer-thumb { width: 44px !important; height: 44px !important; border-radius: 4px;
+      border: 1px solid var(--ctl-border, var(--line)); flex-shrink: 0;
+      background: var(--s-900); }
+    .layer-row.active .layer-thumb { border-color: var(--accent); }
+    .layer-name { font-size: 11.5px; font-weight: 550; }
+    .layer-sub { font-size: 9.5px; color: var(--text-muted); font-family: var(--mono);
+      margin-top: 2px; }
+
+    /* Grip: the affordance that says "this row moves". */
+    /* The grip stays faintly visible rather than fully hidden. A zero-opacity
+       affordance is one you have to already know about — and on touch there is
+       no hover to reveal it at all. */
+    .layer-grip { width: 14px; flex-shrink: 0; color: var(--text-muted);
+      cursor: grab; display: flex; align-items: center; justify-content: center;
+      opacity: .35; transition: opacity .12s ease; touch-action: none; }
+    .layer-row:hover .layer-grip, .layer-row.active .layer-grip { opacity: .85; }
+    .layer-grip:active { cursor: grabbing; }
+    .layer-grip svg { width: 13px; height: 13px; pointer-events: none; }
+
+    /* The row being carried. */
+    .layer-row.dragging { opacity: .5; }
+    /* Drop indicator — a bar showing exactly where the layer will land. */
+    .layer-row.drop-above { box-shadow: inset 0 3px 0 var(--accent); }
+    .layer-row.drop-below { box-shadow: inset 0 -3px 0 var(--accent); }
+
+    /* Per-row quick actions: mask and effects without leaving the list. */
+    /* Actions sit at the end of the row and only appear on hover / when active.
+       flex-shrink:0 keeps them from being squashed; the name column shrinks
+       instead, which is the right trade. */
+    .layer-acts { display: flex; gap: 2px; flex-shrink: 0; opacity: .4;
+      transition: opacity .12s ease; margin-left: auto; }
+    /* On a touch device there is no hover, so the actions must never be invisible. */
+    @media (hover: none) { .layer-acts, .layer-grip { opacity: .8 !important; } }
+    .layer-row:hover .layer-acts, .layer-row.active .layer-acts { opacity: 1; }
+    .layer-act { background: none; border: none; color: var(--text-muted); cursor: pointer;
+      padding: 4px; border-radius: 4px; display: flex; }
+    .layer-act:hover { background: var(--s-700); color: var(--accent); }
+    .layer-act svg { width: 13px; height: 13px; }
+    .layer-act { padding: 3px; }
+    /* The old PIX/VEC chip duplicated the sub line, and its fixed width was part
+       of what squeezed the name. */
+    .layer-row .layer-kind { display: none; }
+    .layer-act.on { color: var(--accent); }
+
+
     .layer-actions { display: flex; gap: 6px; margin-left: 8px; }
     .layer-action { cursor: pointer; opacity: 0.55; transition: 0.15s; display: grid; place-items: center; }
     .layer-action svg { width: 14px; height: 14px; }
@@ -1612,7 +2048,9 @@
     </div>
   </header>
 
-  <div class="app-container">
+  <div class="app-container menus" id="model-app">
+    <div class="menubar" id="model-menubar"></div>
+    <div class="pa-body">
     <div class="workspace">
       <div id="bld-banner" class="banner"></div>
 
@@ -1713,6 +2151,29 @@
           <span class="dim-field y"><span class="axis">Y</span><input type="number" step="0.1" id="hud-size-y"><span class="unit">mm</span></span>
           <span class="dim-field z"><span class="axis">Z</span><input type="number" step="0.1" id="hud-size-z"><span class="unit">mm</span></span>
           <button class="mini-btn primary" id="hud-apply-size" style="min-height:32px; padding:0 12px;">Apply</button>
+        </div>
+              <div class="hud-sep t3-sep" id="t3-sep"></div>
+        <div class="hud-group t3-hud-group" data-t3for="paint">
+          <span class="hud-label">Colour</span>
+          <input type="color" id="t3-paint-color" value="#c2895f">
+          <span class="hud-label">Size</span>
+          <input type="range" id="t3-paint-size" min="1" max="40" step="1" value="8" class="hud-range">
+          <span class="hud-val" id="t3-paint-size-val">8</span>
+          <span class="hud-label">Opacity</span>
+          <input type="range" id="t3-paint-opacity" min="5" max="100" step="1" value="100" class="hud-range">
+          <span class="hud-val" id="t3-paint-opacity-val">100%</span>
+        </div>
+        <div class="hud-group t3-hud-group" data-t3for="slice">
+          <span class="hud-label">Offset</span>
+          <input type="range" id="t3-slice-off" min="-60" max="60" step="0.5" value="0" class="hud-range">
+          <span class="hud-val" id="t3-slice-off-val">0 mm</span>
+          <button class="mini-btn primary" id="t3-slice-run" style="min-height:32px; padding:0 12px;">Slice</button>
+        </div>
+        <div class="hud-group t3-hud-group" data-t3for="fillet">
+          <span class="hud-label">Radius</span>
+          <input type="range" id="t3-fillet-rad" min="0.2" max="12" step="0.1" value="2" class="hud-range">
+          <span class="hud-val" id="t3-fillet-rad-val">2 mm</span>
+          <button class="mini-btn primary" id="t3-fillet-run" style="min-height:32px; padding:0 12px;">Fillet</button>
         </div>
       </div>
 
@@ -1849,6 +2310,28 @@
           <button class="toggle-btn active" data-pol="dark">Dark shape</button>
           <button class="toggle-btn" data-pol="light">Light shape</button>
         </div>
+        </div>
+
+        <div class="param-label" style="margin-top:4px;">Mode</div>
+        <div class="toggle-group" id="img3d-mode" style="margin-bottom:10px;">
+          <button class="toggle-btn active" data-mode="outline">Outline</button>
+          <button class="toggle-btn" data-mode="relief">Relief</button>
+        </div>
+        <div id="img3d-relief-opts" style="display:none;">
+          <div class="param-label">Relief depth <span class="val" id="img3d-relief-val">6 mm</span></div>
+          <input type="range" id="img3d-relief" min="0.5" max="30" step="0.5" value="6">
+          <div class="param-label">Base thickness <span class="val" id="img3d-base-val">2 mm</span></div>
+          <input type="range" id="img3d-base" min="0.5" max="15" step="0.5" value="2">
+          <div class="param-label">Surface detail <span class="val" id="img3d-res-val">160</span></div>
+          <input type="range" id="img3d-res" min="40" max="300" step="10" value="160">
+          <div class="param-label">Noise smoothing <span class="val" id="img3d-rsmooth-val">1</span></div>
+          <input type="range" id="img3d-rsmooth" min="0" max="6" step="1" value="1">
+          <div class="param-label">Flatten darkest <span class="val" id="img3d-flatten-val">0%</span></div>
+          <input type="range" id="img3d-flatten" min="0" max="60" step="1" value="0">
+          <label class="hud-check" style="margin:8px 0;"><input type="checkbox" id="img3d-invert"> Light areas are highest</label>
+          <div class="hint" style="text-align:left; margin-bottom:8px;">Relief reads the picture's brightness as height, so shading becomes real depth — good for logos, engravings and scans. Higher detail means a finer surface but a heavier mesh. "Flatten darkest" pushes the background down to the base to kill speckle.</div>
+        </div>
+        <div style="display:none;">
         <button class="mini-btn primary" id="bld-img3d-regen" style="width:100%; margin-bottom:8px;">Re-generate with these settings</button>
         <div class="hint" style="margin-top:0;">Traces the outline into a smooth extruded solid. Higher detail + smoothing gives cleaner curves; "Dark/Light shape" picks whether the shape is the dark or the light part of the image. Adjust and re-generate to refine.</div>
         </div>
@@ -2054,7 +2537,39 @@
         <input type="file" id="bld-file-input" accept=".stl,.obj,.3mf" multiple style="display:none;">
       </div>
 
+      <div class="section" id="sec-saves" data-tab="ie">
+        <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>Saved versions</div>
+        <div class="hint" style="text-align:left; margin-top:0; margin-bottom:8px;">Undo covers the last few steps; these are full snapshots you name and come back to — "signed off", "before the heel change", and so on. Stored on this device.</div>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <input type="text" id="sv-name" placeholder="Version name" style="flex:1;">
+          <button class="mini-btn primary" id="sv-save" style="white-space:nowrap;">Save</button>
+        </div>
+        <div id="sv-list"><div class="pc-row"><span class="pc-detail">No saved versions yet.</span></div></div>
+        <div class="hint" id="sv-usage" style="margin-top:8px; text-align:left;"></div>
+      </div>
+
+      <div class="section" id="sec-printcheck" data-tab="ie">
+        <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Print check</div>
+        <div class="hint" style="text-align:left; margin-top:0; margin-bottom:8px;">Checks the model against your printer before you commit to a long job: holes, wall thickness, overhangs and bed size.</div>
+        <button class="mini-btn primary" id="pc-run" style="width:100%; margin-bottom:9px;">Check model</button>
+        <div id="pc-results"><div class="pc-row"><span class="pc-detail">Not checked yet.</span></div></div>
+        <div class="param-label" style="margin-top:10px;">Nozzle <span class="val" id="pc-nozzle-val">0.4 mm</span></div>
+        <input type="range" id="pc-nozzle" min="0.2" max="1.2" step="0.05" value="0.4">
+        <div class="param-label">Minimum wall <span class="val" id="pc-wall-val">0.8 mm</span></div>
+        <input type="range" id="pc-wall" min="0.2" max="4" step="0.1" value="0.8">
+        <div class="param-label">Overhang limit <span class="val" id="pc-over-val">45°</span></div>
+        <input type="range" id="pc-over" min="20" max="70" step="1" value="45">
+        <div class="param-label">Bed size (mm)</div>
+        <div class="btn-grid" style="grid-template-columns:repeat(3,1fr); gap:5px;">
+          <input type="number" id="pc-bed-x" value="256" min="10" step="1">
+          <input type="number" id="pc-bed-y" value="256" min="10" step="1">
+          <input type="number" id="pc-bed-z" value="256" min="10" step="1">
+        </div>
+        <div class="hint" style="margin-top:7px; text-align:left;">Defaults match the Bambu H2D. Overhang limit is the steepest angle your printer bridges without support.</div>
+      </div>
+
       <div class="section" id="sec-export" data-tab="ie">
+        <div class="hint" style="text-align:left; margin:6px 0 8px;">Export runs from the <b>File</b> menu. These are the settings it uses.</div>
         <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 17V3"/><path d="m7 8 5-5 5 5"/></svg>Export</div>
         <button class="mini-btn" id="bld-repair-mesh" style="width:100%; margin-bottom:10px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Repair mesh
@@ -2104,6 +2619,7 @@
       </div>
 
       <div class="section" id="sec-mirror" data-tab="edit">
+        <div class="hint" style="text-align:left; margin:6px 0 8px;">Mirror commands are in <b>Modify</b>. This controls whether the original is kept.</div>
         <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M8 8 4 12l4 4"/><path d="m16 8 4 4-4 4"/></svg>Mirror</div>
         <div class="hint" style="text-align:left; margin-top:0; margin-bottom:7px;">Flip the selected object across an axis through its centre. Turn on "Keep original" to leave the original in place and add a mirrored copy (great for making left/right pairs).</div>
         <div class="param-label" style="margin-bottom:6px;">Mirror across</div>
@@ -2268,6 +2784,7 @@
 
       <!-- ── ALIGN / DISTRIBUTE ─────────────────────────────────────── -->
       <div class="section" id="sec-align" data-tab="edit">
+        <div class="hint" style="text-align:left; margin:6px 0 8px;">Align commands are in <b>Modify → Align</b>. This picks the axis they use.</div>
         <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18M9 6h9M9 12h6M9 18h9"/></svg>Align / Distribute</div>
         <div class="hint" style="text-align:left; margin-top:0; margin-bottom:7px;">Line up 2+ selected objects, or space 3+ evenly. Choose an axis first.</div>
         <div class="param-label" style="margin-bottom:6px;">Axis</div>
@@ -2288,6 +2805,7 @@
 
       <!-- ── MESH SMOOTHING ─────────────────────────────────────────── -->
       <div class="section" id="sec-smooth" data-tab="edit">
+        <div class="hint" style="text-align:left; margin:6px 0 8px;">Run smoothing from <b>Modify → Smooth</b>. These set how strong it is.</div>
         <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15c3 0 3-6 6-6s3 6 6 6 3-6 6-6"/></svg>Smooth Mesh</div>
         <div class="hint" style="text-align:left; margin-top:0; margin-bottom:7px;">Softens bumps and scan noise on the selected solid by relaxing its vertices.</div>
         <div class="param-label">Strength <span class="val" id="smooth-str-val">50%</span></div>
@@ -2298,13 +2816,94 @@
         <div class="hint" style="margin-top:8px;">More passes = smoother but softer detail. Strong smoothing can shrink fine features.</div>
       </div>
     </div>
+    </div>
   </div>
 
   <!-- ══════════════════════════════════════════════════════════════════════
        PAINT STUDIO — a layered raster + vector drawing workspace. Hidden
        until the header's "Paint" mode is chosen.
        ══════════════════════════════════════════════════════════════════ -->
-  <div class="app-container paint-app" id="paint-app" style="display:none;">
+  <div class="mask-backdrop" id="exp-backdrop"></div>
+  <div class="mask-dialog" id="exp-dialog" role="dialog" aria-label="Export">
+    <div class="mask-head">
+      <b id="exp-title">Export image</b>
+      <button class="mask-close" id="exp-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="mask-body">
+      <div class="param-label" style="margin-top:0;">File name</div>
+      <div class="exp-name-row">
+        <input type="text" id="exp-name" spellcheck="false" placeholder="artwork">
+        <span class="exp-ext" id="exp-ext">.png</span>
+      </div>
+      <div class="param-label">Format</div>
+      <select id="exp-format" class="hud-select" style="width:100%;">
+        <option value="png">PNG — lossless, keeps transparency</option>
+        <option value="jpg">JPG — smaller, no transparency</option>
+        <option value="webp">WebP — small, keeps transparency</option>
+      </select>
+      <div id="exp-quality-row" style="display:none;">
+        <div class="param-label">Quality <span class="val" id="exp-quality-val">92</span></div>
+        <input type="range" id="exp-quality" min="50" max="100" value="92">
+      </div>
+      <div class="param-label">What to export</div>
+      <div class="toggle-group" id="exp-scope" style="margin-bottom:12px;">
+        <button class="toggle-btn active" data-scope="all">Whole image</button>
+        <button class="toggle-btn" data-scope="layer">Current layer</button>
+      </div>
+      <div class="hint" id="exp-note" style="text-align:left; margin-top:0; margin-bottom:12px;"></div>
+      <div class="btn-grid" style="grid-template-columns:1fr 1fr;">
+        <button class="mini-btn" id="exp-cancel">Cancel</button>
+        <button class="mini-btn primary" id="exp-go">Export</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mask-backdrop" id="bd-backdrop"></div>
+  <div class="bd-dialog" id="bd-dialog" role="dialog">
+    <div class="bd-head">
+      <b id="bd-title">Create</b>
+      <button class="mask-close" id="bd-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="bd-body">
+      <div class="bd-preview-col">
+        <canvas class="bd-preview" id="bd-preview"></canvas>
+        <div class="bd-preview-cap" id="bd-preview-cap">Live preview — drag to rotate</div>
+      </div>
+      <div class="bd-controls" id="bd-controls"></div>
+    </div>
+    <div class="bd-foot">
+      <button class="mini-btn" id="bd-cancel">Cancel</button>
+      <button class="mini-btn primary" id="bd-apply">Add to scene</button>
+    </div>
+  </div>
+
+  <div class="mask-backdrop" id="mask-backdrop"></div>
+  <div class="mask-dialog" id="mask-dialog" role="dialog" aria-label="Layer mask">
+    <div class="mask-head">
+      <b id="mask-dlg-title">Layer mask</b>
+      <button class="mask-close" id="mask-dlg-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="mask-body">
+      <canvas class="mask-preview" id="mask-preview" width="300" height="120"></canvas>
+      <div class="hint" style="text-align:left; margin-top:0; margin-bottom:10px;">Black hides, white reveals. Paint on the mask to hide parts of the layer without deleting anything.</div>
+      <div class="btn-grid" style="grid-template-columns:repeat(2,1fr);">
+        <button class="mini-btn primary" id="mask-dlg-paint">Edit mask</button>
+        <button class="mini-btn" id="mask-dlg-invert">Invert</button>
+        <button class="mini-btn" id="mask-dlg-apply">Apply</button>
+        <button class="mini-btn danger" id="mask-dlg-del">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-container paint-app menus" id="paint-app" style="display:none;">
+    <div class="menubar" id="paint-menubar"></div>
+    <div class="pa-body">
     <div class="workspace">
       <div id="paint-banner" class="banner"></div>
 
@@ -2458,6 +3057,7 @@
     <div class="sidebar" id="paint-sidebar">
       <div class="side-tabs" id="paint-tabs">
         <button data-ptab="layers" class="active">Layers</button>
+        <button data-ptab="colour">Colour</button>
         <button data-ptab="tool">Tool</button>
         <button data-ptab="image">Image</button>
         <button data-ptab="files">Files</button>
@@ -2572,10 +3172,43 @@
         </div>
       </div>
 
+      <!-- COLOUR -->
+      <div class="section" id="psec-colour" style="display:none;">
+        <div class="hint" style="text-align:left; margin-top:0; margin-bottom:10px;">Pick with the wheel, type a hex value, or click a saved swatch. Foreground and background swap with the arrows.</div>
+        <div class="dk-fgbg" id="dk-fgbg">
+          <button class="dk-fgbg-sw dk-fg" id="dk-fg-sw" title="Foreground colour"></button>
+          <button class="dk-fgbg-sw dk-bg" id="dk-bg-sw" title="Background colour"></button>
+          <button class="dk-fgbg-swap" id="dk-swap" title="Swap foreground and background">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3 13 11"/><path d="M8 21H3v-5"/><path d="m3 21 8-8"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- SWATCHES DOCK -->
+      <div class="section dock" id="dock-swatches" data-ptab-keep="colour">
+        <button class="dock-head" data-dock="swatches" type="button">
+          <svg class="dock-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          <span>Swatches</span>
+          <span class="dock-count" id="dk-sw-count"></span>
+        </button>
+        <div class="dock-body">
+          <canvas id="dk-wheel" width="200" height="200" style="width:100%; max-width:190px; display:block; margin:0 auto 10px; cursor:crosshair; touch-action:none;"></canvas>
+          <div class="dk-sw-cur">
+            <div class="dk-sw-chip" id="dk-sw-chip"></div>
+            <input type="text" id="dk-hex" spellcheck="false" style="flex:1; text-align:center;">
+          </div>
+          <button class="mini-btn" id="dk-sw-add" style="width:100%; margin-bottom:9px;">Save current colour</button>
+          <div class="dk-sw-grid" id="dk-sw-grid"></div>
+          <div class="hint" style="text-align:left; margin-top:7px;">Click a swatch to use it. Long-press or right-click one to remove it.</div>
+        </div>
+      </div>
+
       <!-- TOOL OPTIONS -->
       <div class="section" id="psec-tool" style="display:none;">
         <div class="tool-ctx-name" id="tool-ctx-name">Brush</div>
-        <div class="hint" style="text-align:left; margin-bottom:12px;">Size, flow, hardness and colour are in the bar under the canvas and follow the tool you pick. The settings here are specific to the current tool.</div>
+        <div class="hint" style="text-align:left; margin-bottom:10px;">Size, flow, hardness and colour are in the bar under the canvas and follow the tool you pick. The settings here are specific to the current tool.</div>
+        <label class="hud-check" style="margin-bottom:4px;"><input type="checkbox" id="ps-autovec" checked> Shapes make their own vector layer</label>
+        <div class="hint" style="text-align:left; margin-bottom:12px;">On: drawing a shape creates a vector layer so it stays editable. Off: shapes stamp into the current layer as pixels.</div>
 
         <!-- BRUSH FAMILY settings -->
         <div class="tool-ctx" data-ctx="brush">
@@ -2702,7 +3335,20 @@
           <button class="mini-btn" id="pi-sharpen">Sharpen</button>
           <button class="mini-btn" id="pi-blur">Blur</button>
           <button class="mini-btn" id="pi-grayscale">Grayscale</button>
+          <button class="mini-btn" id="pi-sepia">Sepia</button>
+          <button class="mini-btn" id="pi-emboss">Emboss</button>
+          <button class="mini-btn" id="pi-edges">Find edges</button>
+          <button class="mini-btn" id="pi-noise">Add noise</button>
+          <button class="mini-btn" id="pi-pixelate">Pixelate</button>
+          <button class="mini-btn" id="pi-vignette">Vignette</button>
         </div>
+
+        <div class="section-label" style="margin-top:12px;">Distort</div>
+        <div class="btn-grid" style="grid-template-columns:repeat(2,1fr);">
+          <button class="mini-btn primary" id="pi-puppet">Puppet warp</button>
+          <button class="mini-btn" id="pi-ripple">Ripple</button>
+        </div>
+        <div class="hint" style="text-align:left; margin-top:6px;">Puppet warp: tap to drop pins, drag them to bend the image. Pins hold the image in place — put one where you want it anchored. Enter applies, Esc cancels, Backspace removes the last pin.</div>
 
         <div class="section-label" style="margin-top:14px;">Transform</div>
         <div class="btn-grid" style="margin-top:2px;">
@@ -2714,9 +3360,12 @@
 
       <!-- FILES -->
       <div class="section" id="psec-files" style="display:none;">
-        <div class="section-label">Import</div>
-        <button class="mini-btn" id="pf-open" style="width:100%;">Open image as layer</button>
-        <div class="section-label" style="margin-top:14px;">Export</div>
+        <div class="hint" style="text-align:left; margin-bottom:10px;">Import, export and Send-to-3D live in the <b>File</b> menu. These are the settings those commands use.</div>
+        <div class="pf-import-block">
+          <div class="section-label">Import</div>
+          <button class="mini-btn" id="pf-open" style="width:100%;">Open image as layer</button>
+        </div>
+        <div class="section-label" style="margin-top:14px;">Export settings</div>
         <input type="text" id="pf-name" class="text-input" placeholder="File name" value="artwork" style="width:100%; box-sizing:border-box; margin-bottom:6px;">
         <select id="pf-format" class="hud-select" style="width:100%; margin-bottom:6px;">
           <option value="png">PNG — lossless, keeps transparency</option>
@@ -2731,7 +3380,7 @@
         </div>
         <button class="mini-btn primary" id="pf-png" style="width:100%;">Export image</button>
         <button class="mini-btn" id="pf-png-layer" style="width:100%; margin-top:6px;">Export current layer</button>
-        <div class="section-label" style="margin-top:14px;">Send to 3D</div>
+        <div class="section-label" style="margin-top:14px;">Send to 3D settings</div>
         <button class="mini-btn" id="pf-to3d" style="width:100%;">Extrude shape (Image → 3D)</button>
         <div class="hint" style="margin-top:4px; text-align:left;">Turns the artwork into a solid — dark areas become raised. Best for a simple shape on a plain background.</div>
         <button class="mini-btn" id="pf-to3d-tex" style="width:100%; margin-top:8px;">Apply as texture to selection</button>
@@ -2744,6 +3393,7 @@
         <button class="mini-btn" id="pf-clear" style="width:100%;">Clear artwork</button>
         <div class="hint" style="margin-top:6px;">Your artwork is saved on this device automatically.</div>
       </div>
+    </div>
     </div>
   </div>
 
@@ -3014,6 +3664,10 @@
         // Crash recovery: if a previous session was auto-saved, offer to restore it.
         // Do this after init so the scene/renderer exist. We don't auto-clobber an
         // (empty) fresh scene's save until the user decides.
+        // Wait for the database read before deciding whether there's anything to
+        // recover — otherwise a session stored in IndexedDB would look absent.
+        primeSessionCache().then(() => offerSessionRecovery());
+        function offerSessionRecovery() {
         const savedSession = loadSessionData();
         if (savedSession && savedSession.objects && savedSession.objects.length) {
           const secs = Math.round((Date.now() - (savedSession.savedAt||Date.now()))/1000);
@@ -3027,6 +3681,7 @@
             }
             updateSessionStatus();
           }, 400);
+        }
         }
 
         // Periodic safety save, plus a final save when the tab is hidden/closed
@@ -6497,6 +7152,70 @@
       //   core. Generated directly as a vertex grid so it stays watertight and
       //   CSG-ready (e.g. to cut an internal thread into a part).
       // ═══════════════════════════════════════════════════════════════════════════
+      // ── Preview generators for the builder dialogs ─────────────────────────
+      // Each returns geometry built from the CURRENT panel settings using the same
+      // code path the Add button uses, so the preview cannot drift from the real
+      // result. Kept deliberately cheap: previews use coarser detail than the
+      // final build, since they re-run on every slider move.
+      window.MS_PREVIEW = {
+        thread: () => {
+          const g = (id, d) => { const e = document.getElementById(id); return e ? parseFloat(e.value) : d; };
+          const t = document.getElementById('thread-type');
+          const internal = t ? t.value === 'internal' : false;
+          const hand = document.getElementById('thread-hand');
+          const handedness = hand ? (hand.querySelector('.active') ? hand.querySelector('.active').dataset.hand : 'right') : 'right';
+          const pitch = g('thread-pitch', 1.5), length = g('thread-len', 20);
+          if (pitch <= 0 || pitch >= length) return null;
+          return buildThreadGeometry({ diameter: g('thread-dia', 10), pitch, length, internal, handedness });
+        },
+        text3d: () => {
+          const txt = (document.getElementById('text3d-input') || {}).value || '';
+          if (!txt.trim()) return null;
+          const fontKey = (document.getElementById('text3d-font') || {}).value;
+          const font = fontCache && fontCache[fontKey];
+          // Fonts load asynchronously. Kick the load off and ask the dialog to
+          // re-preview once it lands, otherwise the first preview is always empty
+          // and never recovers.
+          if (!font) {
+            loadFont3D(fontKey).then(() => {
+              if (window.MS_PREVIEW_REFRESH) window.MS_PREVIEW_REFRESH();
+            }).catch(() => {});
+            return null;
+          }
+          const size = parseFloat((document.getElementById('text3d-size') || {}).value) || 10;
+          const depth = parseFloat((document.getElementById('text3d-depth') || {}).value) || 4;
+          const warpEl = document.getElementById('text3d-warp');
+          const amtEl = document.getElementById('text3d-warp-amt');
+          const warp = warpEl ? warpEl.value : 'none';
+          const amount = (parseFloat(amtEl ? amtEl.value : 40) || 40) / 100;
+          let geo = (warp && warp !== 'none')
+            ? buildWarpedTextGeometry(font, txt, size, depth, warp, amount) : null;
+          if (!geo) {
+            const segs = Math.max(6, Math.min(12, Math.round(size * 0.6)));   // coarser for preview
+            geo = new THREE.ExtrudeGeometry(textShapes(font, txt, size, segs), {
+              depth, bevelEnabled: false, curveSegments: segs, steps: 1 });
+            geo.rotateX(Math.PI / 2);
+          }
+          geo.center();
+          return geo;
+        },
+        img3d: () => {
+          // Only meaningful once an image has been dropped in.
+          if (!window._img3dLastImage) return null;
+          const el = (id, d) => { const e = document.getElementById(id); return e ? parseFloat(e.value) : d; };
+          const mode = document.querySelector('#img3d-mode .toggle-btn.active');
+          if (!mode || mode.dataset.mode !== 'relief') return null;
+          return buildReliefGeometry(window._img3dLastImage, {
+            footprint: el('img3d-size', 60), relief: el('img3d-relief', 6),
+            base: el('img3d-base', 2),
+            res: Math.min(80, parseInt(el('img3d-res', 160), 10)),   // coarse preview
+            smooth: parseInt(el('img3d-rsmooth', 1), 10) || 0,
+            flatten: parseInt(el('img3d-flatten', 0), 10) || 0,
+            invert: (document.getElementById('img3d-invert') || {}).checked || false
+          });
+        }
+      };
+
       function buildThreadGeometry(opts) {
         const {
           diameter = 10,     // outer (major) diameter
@@ -7059,7 +7778,173 @@
         return inside;
       }
 
+      // ── Image → 3D relief (heightmap) ──────────────────────────────────────
+      // The existing importer traces the image's OUTLINE and extrudes it flat — a
+      // stamp of the silhouette. This instead reads the image's brightness as
+      // HEIGHT, so shading in the picture becomes real depth: a photo of a logo or
+      // a scan of a foot comes out as a contoured surface rather than a flat plate.
+      //
+      // Every pixel becomes a vertex on a grid, the grid is triangulated, and skirt
+      // walls plus a base are added so the result is a closed solid that can be cut,
+      // filleted, and printed rather than an open sheet.
+      function buildReliefGeometry(img, opts) {
+        const o = Object.assign({
+          footprint: 60,     // mm across the longest side
+          relief: 6,         // mm from the lowest point to the highest
+          base: 2,           // mm of solid plate underneath
+          res: 160,          // grid samples across the longest side
+          invert: false,     // light = high, or dark = high
+          smooth: 1,         // blur passes over the height data
+          flatten: 0         // clamp the darkest N% to the base (kills noise)
+        }, opts || {});
+
+        // Sample the image into a grid.
+        const ar = img.width / img.height;
+        const nx = Math.max(8, Math.round(ar >= 1 ? o.res : o.res * ar));
+        const ny = Math.max(8, Math.round(ar >= 1 ? o.res / ar : o.res));
+        const c = document.createElement('canvas');
+        c.width = nx; c.height = ny;
+        const cx = c.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(img, 0, 0, nx, ny);
+        const px = cx.getImageData(0, 0, nx, ny).data;
+
+        // Perceptual luminance — a plain RGB average makes reds and blues read at
+        // the wrong height, which matters on coloured scans.
+        let h = new Float32Array(nx * ny);
+        for (let i = 0, n = nx * ny; i < n; i++) {
+          const r = px[i*4], g = px[i*4+1], b = px[i*4+2], a = px[i*4+3] / 255;
+          let v = (0.2126*r + 0.7152*g + 0.0722*b) / 255;
+          v *= a;                              // transparent areas sit at the base
+          h[i] = o.invert ? 1 - v : v;
+        }
+
+        // Blur to take the edge off compression noise and dithering, which would
+        // otherwise print as a rough, speckled surface.
+        for (let s = 0; s < o.smooth; s++) {
+          const t = new Float32Array(h.length);
+          for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) {
+            let sum = 0, cnt = 0;
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+              const xx = x+dx, yy = y+dy;
+              if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
+              sum += h[yy*nx+xx]; cnt++;
+            }
+            t[y*nx+x] = sum / cnt;
+          }
+          h = t;
+        }
+
+        // Normalise to the actual range present, so a low-contrast photo still uses
+        // the full relief depth instead of coming out nearly flat.
+        let lo = Infinity, hi = -Infinity;
+        for (let i = 0; i < h.length; i++) { if (h[i] < lo) lo = h[i]; if (h[i] > hi) hi = h[i]; }
+        const span = (hi - lo) || 1;
+        const cut = o.flatten / 100;
+        for (let i = 0; i < h.length; i++) {
+          let v = (h[i] - lo) / span;
+          v = v <= cut ? 0 : (v - cut) / (1 - cut || 1);
+          h[i] = v;
+        }
+
+        const w = o.footprint, d = o.footprint / ar;
+        const sx = w / (nx - 1), sy = d / (ny - 1);
+        const X = (i) => -w/2 + i * sx;
+        const Y = (j) => -d/2 + j * sy;
+        const Z = (i, j) => o.base + h[j*nx + i] * o.relief;
+
+        const pos = [];
+        const tri = (ax,ay,az, bx,by,bz, cx2,cy2,cz) => { pos.push(ax,ay,az, bx,by,bz, cx2,cy2,cz); };
+
+        // Top surface.
+        for (let j = 0; j < ny-1; j++) for (let i = 0; i < nx-1; i++) {
+          const x0=X(i), x1=X(i+1), y0=Y(j), y1=Y(j+1);
+          const z00=Z(i,j), z10=Z(i+1,j), z01=Z(i,j+1), z11=Z(i+1,j+1);
+          tri(x0,y0,z00, x1,y0,z10, x1,y1,z11);
+          tri(x0,y0,z00, x1,y1,z11, x0,y1,z01);
+        }
+        // Flat base — subdivided on the SAME grid as the skirt walls. Using a
+        // single large quad here left the base edges unsplit while the walls were
+        // split per column, so the corner vertices never matched up and the solid
+        // came out with hundreds of open edges (and so couldn't be booleaned).
+        const x0=-w/2, x1=w/2, y0=-d/2, y1=d/2;
+        for (let j = 0; j < ny-1; j++) for (let i = 0; i < nx-1; i++) {
+          const ax=X(i), bx=X(i+1), ay=Y(j), by=Y(j+1);
+          tri(ax,ay,0, bx,by,0, bx,ay,0);
+          tri(ax,ay,0, ax,by,0, bx,by,0);
+        }
+        // Skirt walls joining the surface to the base, so the solid is closed.
+        for (let i = 0; i < nx-1; i++) {
+          const xa=X(i), xb=X(i+1);
+          tri(xa,y0,0, xb,y0,0, xb,y0,Z(i+1,0));
+          tri(xa,y0,0, xb,y0,Z(i+1,0), xa,y0,Z(i,0));
+          tri(xb,y1,0, xa,y1,0, xa,y1,Z(i,ny-1));
+          tri(xb,y1,0, xa,y1,Z(i,ny-1), xb,y1,Z(i+1,ny-1));
+        }
+        for (let j = 0; j < ny-1; j++) {
+          const ya=Y(j), yb=Y(j+1);
+          tri(x1,ya,0, x1,yb,0, x1,yb,Z(nx-1,j+1));
+          tri(x1,ya,0, x1,yb,Z(nx-1,j+1), x1,ya,Z(nx-1,j));
+          tri(x0,yb,0, x0,ya,0, x0,ya,Z(0,j));
+          tri(x0,yb,0, x0,ya,Z(0,j), x0,yb,Z(0,j+1));
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+        geo.computeVertexNormals();
+        return geo;
+      }
+
+      // Read the chosen mode and hand off to the relief builder when asked.
+      function img3dMode() {
+        const b = document.querySelector('#img3d-mode .toggle-btn.active');
+        return b ? b.dataset.mode : 'outline';
+      }
+      function importImageAsRelief(file) {
+        const el = (id) => document.getElementById(id);
+        const opts = {
+          footprint: parseFloat(el('img3d-size') ? el('img3d-size').value : 60) || 60,
+          relief:    parseFloat(el('img3d-relief') ? el('img3d-relief').value : 6) || 6,
+          base:      parseFloat(el('img3d-base') ? el('img3d-base').value : 2) || 2,
+          res:       parseInt(el('img3d-res') ? el('img3d-res').value : 160, 10) || 160,
+          smooth:    parseInt(el('img3d-rsmooth') ? el('img3d-rsmooth').value : 1, 10) || 0,
+          flatten:   parseInt(el('img3d-flatten') ? el('img3d-flatten').value : 0, 10) || 0,
+          invert:    el('img3d-invert') ? el('img3d-invert').checked : false
+        };
+        banner('Reading image…');
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            window._img3dLastImage = img;   // so the dialog can preview it
+            try {
+              banner('Building relief — this can take a moment at high detail…');
+              const geo = buildReliefGeometry(img, opts);
+              const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb0b8c8, roughness: 0.45 }));
+              mesh.userData.name = (file.name || 'Relief').replace(/\.[^.]+$/, '');
+              recenterMeshTransform(mesh);
+              mesh.castShadow = true; mesh.receiveShadow = true;
+              scene.add(mesh); objects.push(mesh);
+              selected = [mesh];
+              refreshSelectionVisual(); attachGizmoToSelection();
+              saveHistory(); updateStatus(); updateFloatingHUD();
+              if (window.invalidate3D) window.invalidate3D();
+              const tris = geo.attributes.position.count / 3;
+              banner(`Relief created — ${tris.toLocaleString()} triangles. Lower "Surface detail" if it feels heavy.`);
+            } catch (err) {
+              console.error('Relief build failed:', err);
+              banner('⚠️ Couldn\'t build a relief from that image: ' + ((err && err.message) || err));
+            }
+            URL.revokeObjectURL(img.src);
+          };
+          img.onerror = () => banner('⚠️ Couldn\'t read that image.');
+          img.src = reader.result;
+        };
+        reader.onerror = () => banner('⚠️ Couldn\'t read that file.');
+        reader.readAsDataURL(file);
+      }
+
       function importImageTo3D(file) {
+        if (img3dMode() === 'relief') return importImageAsRelief(file);
         const footprint = parseFloat(document.getElementById('img3d-size').value) || 40;
         const depth = parseFloat(document.getElementById('img3d-depth').value) || 5;
         const threshold = parseFloat(document.getElementById('img3d-thresh').value) || 128;
@@ -7432,6 +8317,196 @@
       // ═══════════════════════════════════════════════════════════════════════════
       //   EXPORT  (STL binary · OBJ · 3MF)
       // ═══════════════════════════════════════════════════════════════════════════
+      // ── Print check ─────────────────────────────────────────────────────────
+      // Runs the checks that decide whether a model will actually print, before you
+      // commit to hours on the machine. Everything here is measured from the mesh
+      // itself rather than guessed at.
+      function runPrintCheck(opts) {
+        const o = Object.assign({ nozzle: 0.4, minWall: 0.8, overhang: 45, bed: [256, 256, 256] }, opts || {});
+        const meshes = gatherExportMeshes();
+        if (!meshes.length) return { empty: true };
+
+        const weld = makeWelder(1e-4);
+        const edges = new Map();          // welded edge -> use count
+        let tris = 0, degenerate = 0, flipped = 0;
+        let overhangArea = 0, totalArea = 0;
+        const bbox = new THREE.Box3();
+        const up = new THREE.Vector3(0, 0, 1);   // engine is Z-up
+
+        meshes.forEach(mesh => {
+          mesh.updateMatrixWorld(true);
+          const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+          const pos = g.attributes.position;
+          const m = mesh.matrixWorld;
+          const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+          for (let i = 0; i < pos.count; i += 3) {
+            a.fromBufferAttribute(pos, i).applyMatrix4(m);
+            b.fromBufferAttribute(pos, i+1).applyMatrix4(m);
+            c.fromBufferAttribute(pos, i+2).applyMatrix4(m);
+            bbox.expandByPoint(a); bbox.expandByPoint(b); bbox.expandByPoint(c);
+            tris++;
+
+            const e1 = b.clone().sub(a), e2 = c.clone().sub(a);
+            const n = e1.clone().cross(e2);
+            const area = n.length() * 0.5;
+            if (area < 1e-9) { degenerate++; continue; }
+            totalArea += area;
+            n.normalize();
+
+            // Overhang: how far the face tips away from vertical. A downward-facing
+            // face steeper than the threshold needs support.
+            const tilt = Math.acos(Math.max(-1, Math.min(1, n.dot(up)))) * 180 / Math.PI;
+            if (tilt > 90 + (90 - o.overhang)) overhangArea += area;
+
+            // Edge bookkeeping for the watertight test.
+            const wa = weld(a), wb = weld(b), wc = weld(c);
+            const key = (p, q) => {
+              const kp = p.x + ',' + p.y + ',' + p.z, kq = q.x + ',' + q.y + ',' + q.z;
+              return kp < kq ? kp + '|' + kq : kq + '|' + kp;
+            };
+            [[wa, wb], [wb, wc], [wc, wa]].forEach(([p, q]) => {
+              if (p === q) return;
+              const k = key(p, q);
+              edges.set(k, (edges.get(k) || 0) + 1);
+            });
+          }
+        });
+
+        // Measure ACTUAL wall thickness by ray casting.
+        //
+        // The obvious shortcut — flagging small triangles — is wrong: triangle size
+        // is a function of tessellation, not thickness, so a finely meshed sphere
+        // looks "thin" while being solid throughout. Instead we fire a ray from a
+        // sample of surface points back into the solid along the inward normal and
+        // measure how far it travels before leaving. That distance IS the wall.
+        let thinSpots = 0, thinnest = Infinity, probes = 0;
+        const maxSpan = bbox.getSize(new THREE.Vector3()).length() || 100;
+        try {
+          const ray = new THREE.Raycaster();
+          ray.firstHitOnly = false;
+          const sampleTargets = meshes.slice(0, 12);
+          const step = Math.max(1, Math.floor(tris / 400));   // cap the work
+          let t = 0;
+          for (const mesh of sampleTargets) {
+            const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+            const pos = g.attributes.position;
+            const m = mesh.matrixWorld;
+            const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+            for (let i = 0; i < pos.count; i += 3, t++) {
+              if (t % step) continue;
+              a.fromBufferAttribute(pos, i).applyMatrix4(m);
+              b.fromBufferAttribute(pos, i+1).applyMatrix4(m);
+              c.fromBufferAttribute(pos, i+2).applyMatrix4(m);
+              const n = b.clone().sub(a).cross(c.clone().sub(a));
+              if (n.lengthSq() < 1e-12) continue;
+              n.normalize().multiplyScalar(-1);                 // point inward
+              const centre = a.clone().add(b).add(c).multiplyScalar(1/3);
+              ray.set(centre.clone().addScaledVector(n, 1e-3), n);
+              // Range must comfortably exceed the wall being looked for. Capping it
+              // at a small multiple of the minimum meant a thick part's far side sat
+              // beyond the ray and nothing was ever measured — the check silently
+              // reported "not measured" on perfectly good models.
+              ray.far = Math.max(o.minWall * 20, maxSpan);
+              // Raycasting skips back faces by default, and a ray travelling INTO a
+              // solid only ever exits through one — so every probe missed and no
+              // thickness was measured at all. Flip the material to double-sided for
+              // the duration of the probe and restore it afterwards.
+              const prevSide = mesh.material && mesh.material.side;
+              if (mesh.material) mesh.material.side = THREE.DoubleSide;
+              const hits = ray.intersectObject(mesh, false);
+              if (mesh.material && prevSide !== undefined) mesh.material.side = prevSide;
+              if (hits.length) {
+                probes++;
+                const d = hits[0].distance;
+                if (d < thinnest) thinnest = d;
+                if (d < o.minWall) thinSpots++;
+              }
+            }
+          }
+        } catch (e) { probes = 0; }
+
+        let open = 0, nonManifold = 0;
+        edges.forEach(count => {
+          if (count === 1) open++;              // a boundary — the mesh has a hole
+          else if (count > 2) nonManifold++;    // more than two faces share an edge
+        });
+
+        const size = new THREE.Vector3();
+        bbox.getSize(size);
+        const fitsBed = size.x <= o.bed[0] && size.y <= o.bed[1] && size.z <= o.bed[2];
+
+        return {
+          meshes: meshes.length, tris,
+          open, nonManifold, degenerate,
+          watertight: open === 0 && nonManifold === 0,
+          thinSpots, thinnest: (thinnest === Infinity ? null : thinnest), probes,
+          overhangPct: totalArea > 0 ? (overhangArea / totalArea) * 100 : 0,
+          size: { x: size.x, y: size.y, z: size.z },
+          fitsBed, bed: o.bed,
+          minZ: bbox.min.z,
+          nozzle: o.nozzle, minWall: o.minWall, overhang: o.overhang
+        };
+      }
+
+      // Render the result as a readable report rather than a wall of numbers.
+      function renderPrintCheck(r) {
+        const box = document.getElementById('pc-results');
+        if (!box) return;
+        if (!r || r.empty) {
+          box.innerHTML = '<div class="pc-row pc-warn"><span>Nothing to check — the scene is empty.</span></div>';
+          return;
+        }
+        const rows = [];
+        const row = (state, label, detail) =>
+          rows.push('<div class="pc-row pc-' + state + '"><span class="pc-dot"></span><div><b>' +
+                    label + '</b>' + (detail ? '<br><span class="pc-detail">' + detail + '</span>' : '') + '</div></div>');
+
+        if (r.watertight) row('ok', 'Watertight', 'No holes or non-manifold edges — safe to slice.');
+        else {
+          const bits = [];
+          if (r.open) bits.push(r.open + ' open edge' + (r.open === 1 ? '' : 's') + ' (holes in the surface)');
+          if (r.nonManifold) bits.push(r.nonManifold + ' non-manifold edge' + (r.nonManifold === 1 ? '' : 's') + ' (faces meeting badly)');
+          row('bad', 'Not watertight', bits.join(' · ') + '. Slicers may fill this in unpredictably.');
+        }
+
+        if (r.degenerate) row('warn', r.degenerate + ' zero-area triangle' + (r.degenerate === 1 ? '' : 's'),
+          'Harmless to print, but they can upset booleans. Exporting cleans them up.');
+
+        if (!r.probes) row('warn', 'Wall thickness not measured',
+          'Couldn\'t sample this model — check thin areas by eye.');
+        else if (r.thinSpots) row('bad', 'Thin walls',
+          'Measured down to ' + r.thinnest.toFixed(2) + ' mm, below your ' + r.minWall +
+          ' mm minimum. Thin areas may not print, or will come out weak.');
+        else row('ok', 'Wall thickness',
+          'Thinnest measured section is ' + (r.thinnest != null ? r.thinnest.toFixed(2) + ' mm' : 'above the limit') +
+          ' — clears the ' + r.minWall + ' mm minimum.');
+
+        const op = r.overhangPct;
+        if (op > 25) row('bad', 'Heavy overhangs', op.toFixed(0) + '% of the surface is steeper than ' +
+          r.overhang + '°. Expect supports, or reorient the part.');
+        else if (op > 8) row('warn', 'Some overhangs', op.toFixed(0) + '% steeper than ' + r.overhang +
+          '° — supports likely in places.');
+        else row('ok', 'Overhangs', op.toFixed(0) + '% steep faces — should print unsupported.');
+
+        const s = r.size;
+        const dims = s.x.toFixed(1) + ' × ' + s.y.toFixed(1) + ' × ' + s.z.toFixed(1) + ' mm';
+        if (r.fitsBed) row('ok', 'Fits the bed', dims + ' within ' + r.bed.join(' × ') + ' mm.');
+        else row('bad', 'Too big for the bed', dims + ' exceeds ' + r.bed.join(' × ') +
+          ' mm. Scale it down or split it.');
+
+        if (Math.abs(r.minZ) > 0.05) row('warn', 'Not sitting on the build plate',
+          'Lowest point is ' + r.minZ.toFixed(2) + ' mm from zero. Most slicers drop it automatically.');
+
+        const bad = rows.filter(x => x.indexOf('pc-bad') >= 0).length;
+        const warn = rows.filter(x => x.indexOf('pc-warn') >= 0).length;
+        const head = '<div class="pc-summary">' +
+          (bad ? '<b style="color:var(--danger,#e06c6c);">' + bad + ' problem' + (bad === 1 ? '' : 's') + '</b>'
+               : (warn ? '<b style="color:var(--accent);">Ready, with ' + warn + ' note' + (warn === 1 ? '' : 's') + '</b>'
+                       : '<b style="color:#6cc07a;">Ready to print</b>')) +
+          ' · ' + r.meshes + ' part' + (r.meshes === 1 ? '' : 's') + ', ' + r.tris.toLocaleString() + ' triangles</div>';
+        box.innerHTML = head + rows.join('');
+      }
+
       function gatherExportMeshes() {
         // Collect renderable meshes, descending into groups. Some objects (combined
         // parts, imported multi-mesh models, baked sketch groups) are THREE.Groups
@@ -8906,9 +9981,28 @@
 
       function saveSession() {
         try {
-          if (!objects.length) { localStorage.removeItem(SESSION_KEY); updateSessionStatus(); return; }
+          if (!objects.length) {
+            localStorage.removeItem(SESSION_KEY);
+            if (window.Store && Store.available) Store.del(SESSION_KEY).catch(() => {});
+            updateSessionStatus(); return;
+          }
           const data = { v: 1, savedAt: Date.now(), objects: serializeScene() };
           const json = JSON.stringify(data);
+          // IndexedDB first: it has room for models that localStorage simply could
+          // not hold, which is why dense meshes used to fail to autosave entirely.
+          if (window.Store && Store.available) {
+            Store.set(SESSION_KEY, json)
+              .then(() => { localStorage.removeItem(SESSION_KEY); updateSessionStatus(); })
+              .catch(() => {
+                // Fall back so a storage failure never means losing the session.
+                try {
+                  if (json.length <= 4.8 * 1024 * 1024) localStorage.setItem(SESSION_KEY, json);
+                  else banner("⚠️ Model too large to auto-save — export to keep it safe.");
+                } catch (e2) {}
+                updateSessionStatus();
+              });
+            return;
+          }
           if (json.length > 4.8 * 1024 * 1024) { banner("⚠️ Model too large to auto-save — export to keep it safe."); return; }
           localStorage.setItem(SESSION_KEY, json);
           updateSessionStatus();
@@ -8920,9 +10014,23 @@
         sessionSaveTimer = setTimeout(saveSession, 1200);
       }
 
+      // IndexedDB is asynchronous but the callers here are not, so the session is
+      // pulled into a small cache as soon as it's available and read synchronously
+      // from there. localStorage is still checked as a fallback for anyone whose
+      // data hasn't migrated yet.
+      let _sessionCache = null, _sessionReady = false;
       function loadSessionData() {
+        if (_sessionCache) return _sessionCache;
         try { const raw = localStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : null; }
         catch (e) { return null; }
+      }
+      function primeSessionCache() {
+        if (!(window.Store && Store.available)) return Promise.resolve(null);
+        return Store.get(SESSION_KEY).then(raw => {
+          if (raw) { try { _sessionCache = JSON.parse(raw); } catch (e) {} }
+          _sessionReady = true;
+          return _sessionCache;
+        }).catch(() => { _sessionReady = true; return null; });
       }
 
       function restoreSession(data) {
@@ -10031,10 +11139,10 @@
         select: ['sec-select-mini'],
         create: ['sec-primitives', 'sec-text3d', 'sec-img3d', 'sec-thread'],
         edit:   ['sec-mirror', 'sec-combine', 'sec-booleans', 'sec-shell', 'sec-array', 'sec-align', 'sec-workspace'],
-        ie:     ['sec-import', 'sec-export', 'sec-session']
+        ie:     ['sec-saves', 'sec-printcheck', 'sec-import', 'sec-export', 'sec-session']
       };
       let activePanelTab = 'select';
-      const ALL_PANELS = ['sec-select-mini','sec-primitives','sec-text3d','sec-img3d','sec-booleans','sec-fillet','sec-paint','sec-sculpt','sketch-panel','layer-panel','sec-extrude','sec-slice','sec-import','sec-export','sec-session','sec-workspace','sec-mirror','sec-combine','sec-measure','sec-thread','sec-shell','sec-chamfer','sec-array','sec-align','sec-smooth','sec-revolve','sec-loft','sec-mold'];
+      const ALL_PANELS = ['sec-select-mini','sec-primitives','sec-text3d','sec-img3d','sec-booleans','sec-fillet','sec-paint','sec-sculpt','sketch-panel','layer-panel','sec-extrude','sec-slice','sec-import','sec-export','sec-printcheck','sec-saves','sec-session','sec-workspace','sec-mirror','sec-combine','sec-measure','sec-thread','sec-shell','sec-chamfer','sec-array','sec-align','sec-smooth','sec-revolve','sec-loft','sec-mold'];
 
       function setActivePanelTab(tab) {
         activePanelTab = tab;
@@ -10562,6 +11670,22 @@
           lastImage3DFile = file;
           importImageTo3D(file);
         };
+        // Mode toggle: outline (silhouette stamp) vs relief (brightness as height).
+        const relOpts = document.getElementById('img3d-relief-opts');
+        document.querySelectorAll('#img3d-mode .toggle-btn').forEach(btn => {
+          btn.onclick = () => {
+            document.querySelectorAll('#img3d-mode .toggle-btn').forEach(x => x.classList.toggle('active', x === btn));
+            if (relOpts) relOpts.style.display = btn.dataset.mode === 'relief' ? '' : 'none';
+          };
+        });
+        [['img3d-relief','img3d-relief-val',' mm'], ['img3d-base','img3d-base-val',' mm'],
+         ['img3d-res','img3d-res-val',''], ['img3d-rsmooth','img3d-rsmooth-val',''],
+         ['img3d-flatten','img3d-flatten-val','%']].forEach(([id,valId,suffix]) => {
+          const el = document.getElementById(id), out = document.getElementById(valId);
+          if (!el || !out) return;
+          const upd = () => { out.textContent = el.value + suffix; };
+          el.oninput = upd; upd();
+        });
         img3dZone.onclick = () => img3dInput.click();
         img3dInput.onchange = e => { if (e.target.files.length) loadImg3d(e.target.files[0]); img3dInput.value = ''; };
         ['dragenter','dragover'].forEach(ev => img3dZone.addEventListener(ev, e => { e.preventDefault(); img3dZone.classList.add('dragover'); }));
@@ -10598,6 +11722,110 @@
         });
 
         // ── 3D Text ───────────────────────────────────────────────────
+        // ── Named save states ────────────────────────────────────────────────
+        // A full snapshot of the 3D scene under a name you choose, so you can get
+        // back to a specific agreed version rather than stepping through undo.
+        function svRender(list) {
+          const box = document.getElementById('sv-list');
+          if (!box) return;
+          if (!list || !list.length) {
+            box.innerHTML = '<div class="pc-row"><span class="pc-detail">No saved versions yet.</span></div>';
+            return;
+          }
+          box.innerHTML = '';
+          list.forEach(rec => {
+            const row = document.createElement('div');
+            row.className = 'pc-row';
+            row.style.justifyContent = 'space-between';
+            const age = (() => {
+              const s = Math.round((Date.now() - rec.savedAt) / 1000);
+              if (s < 60) return 'just now';
+              if (s < 3600) return Math.round(s/60) + ' min ago';
+              if (s < 86400) return Math.round(s/3600) + ' hr ago';
+              return new Date(rec.savedAt).toLocaleDateString();
+            })();
+            const info = document.createElement('div');
+            info.innerHTML = '<b>' + (rec.name || 'Untitled') + '</b><br><span class="pc-detail">' +
+                             age + ' · ' + (rec.count || 0) + ' object' + (rec.count === 1 ? '' : 's') + '</span>';
+            const btns = document.createElement('div');
+            btns.style.cssText = 'display:flex; gap:5px; flex-shrink:0;';
+            const load = document.createElement('button');
+            load.className = 'mini-btn'; load.textContent = 'Open';
+            load.onclick = () => {
+              if (objects.length && !confirm('Open "' + rec.name + '"? The current scene will be replaced.')) return;
+              Store.getSave(rec.id).then(full => {
+                if (!full || !full.data) return banner('⚠️ That version could not be read.');
+                restoreSession(full.data);
+                banner('Opened "' + rec.name + '".');
+              }).catch(() => banner('⚠️ Could not open that version.'));
+            };
+            const del = document.createElement('button');
+            del.className = 'mini-btn danger'; del.textContent = 'Delete';
+            del.onclick = () => {
+              if (!confirm('Delete "' + rec.name + '" permanently?')) return;
+              Store.delSave(rec.id).then(svRefresh).catch(() => {});
+            };
+            btns.append(load, del);
+            row.append(info, btns);
+            box.appendChild(row);
+          });
+        }
+        function svRefresh() {
+          if (!(window.Store && Store.available)) return;
+          Store.listSaves().then(svRender).catch(() => {});
+          Store.usage().then(u => {
+            const el = document.getElementById('sv-usage');
+            if (!el || !u || !u.quota) return;
+            const mb = (n) => (n / 1048576).toFixed(1) + ' MB';
+            el.textContent = 'Using ' + mb(u.used) + ' of about ' + mb(u.quota) + ' available on this device.';
+          }).catch(() => {});
+        }
+        const svSave = document.getElementById('sv-save');
+        if (svSave) svSave.onclick = () => {
+          if (!(window.Store && Store.available)) return banner('⚠️ This browser cannot store saved versions.');
+          if (!objects.length) return banner('⚠️ Nothing to save yet.');
+          const field = document.getElementById('sv-name');
+          const name = (field && field.value.trim()) || ('Version ' + new Date().toLocaleString());
+          const rec = {
+            id: 'sv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+            name, savedAt: Date.now(), count: objects.length,
+            data: { v: 1, savedAt: Date.now(), objects: serializeScene() }
+          };
+          Store.putSave(rec)
+            .then(() => { if (field) field.value = ''; svRefresh(); banner('Saved "' + name + '".'); })
+            .catch(err => { console.error(err); banner('⚠️ Could not save that version.'); });
+        };
+        svRefresh();
+
+        // Print check
+        const pcRun = document.getElementById('pc-run');
+        if (pcRun) pcRun.onclick = () => {
+          const num = (id, dflt) => { const e = document.getElementById(id); return e ? (parseFloat(e.value) || dflt) : dflt; };
+          banner('Checking model…');
+          try {
+            const r = runPrintCheck({
+              nozzle: num('pc-nozzle', 0.4),
+              minWall: num('pc-wall', 0.8),
+              overhang: num('pc-over', 45),
+              bed: [num('pc-bed-x', 256), num('pc-bed-y', 256), num('pc-bed-z', 256)]
+            });
+            renderPrintCheck(r);
+            banner(r.empty ? 'Nothing to check yet.'
+                 : (r.watertight && r.fitsBed ? 'Check complete — no blocking problems.'
+                                              : 'Check complete — see the report.'));
+          } catch (err) {
+            console.error('Print check failed:', err);
+            banner('⚠️ Couldn\'t finish the check: ' + ((err && err.message) || err));
+          }
+        };
+        [['pc-nozzle','pc-nozzle-val',' mm'], ['pc-wall','pc-wall-val',' mm'],
+         ['pc-over','pc-over-val','\u00b0']].forEach(([id, valId, suffix]) => {
+          const el = document.getElementById(id), out = document.getElementById(valId);
+          if (!el || !out) return;
+          const upd = () => { out.textContent = el.value + suffix; };
+          el.oninput = upd; upd();
+        });
+
         document.getElementById('bld-text3d-run').onclick = generate3DText;
         // If stale (pre-fix) uploaded fonts were discarded on load, say so once —
         // otherwise the font would just silently vanish from the list.
@@ -10908,10 +12136,15 @@
           applySide(right);
           try { localStorage.setItem('modelsmith_panel_side', right ? 'right' : 'left'); } catch(e){}
         });
-        // restore the saved side preference
+        // Default the properties panel to the RIGHT. That's the convention in both
+        // Photoshop and GIMP — tools down the left edge, canvas in the middle,
+        // panels on the right — and it keeps the 2D tool column hard against the
+        // left edge instead of being pushed inward by the sidebar. An explicit
+        // saved preference still wins.
         try {
-          if (localStorage.getItem('modelsmith_panel_side') === 'right') applySide(true);
-        } catch(e){}
+          const saved = localStorage.getItem('modelsmith_panel_side');
+          applySide(saved ? saved === 'right' : true);
+        } catch(e){ applySide(true); }
       }
 
       // Hints/tips toggle: add a body class that hides all .hint text, so panels
@@ -11317,6 +12550,9 @@
         const pv = $('ps-preview'); if (pv) pv.style.setProperty('--cp-current', toRGBA(fg));
         const sf = $('ps-sw-fg'); if (sf) sf.style.background = toRGBA(fg);
         const sb = $('ps-sw-bg'); if (sb) sb.style.background = toRGBA(bg);
+        // keep the wheel and swatch chip in step with any colour change
+        if (window.redrawWheel) window.redrawWheel();
+        if (window.syncFgBg) window.syncFgBg();
       }
 
       function renderSwatches() {
@@ -11573,6 +12809,7 @@
         vedit:       ['zoom'],
         text:        ['colour','text','warp','zoom'],
         move:        ['zoom'],
+        puppet:      ['zoom'],
         selrect:     ['selops','ratio','zoom'],
         seloval:     ['selops','ratio','zoom'],
         lasso:       ['selops','zoom'],
@@ -11625,8 +12862,13 @@
           x.classList.toggle('active', x.dataset.ptab === t));
         const btn = document.querySelector('#paint-tabs button[data-ptab="' + t + '"]');
         if (btn && $('paint-panel-title')) $('paint-panel-title').textContent = btn.textContent;
-        ['layers','tool','image','files'].forEach(k => {
+        ['layers','colour','tool','image','files'].forEach(k => {
           const el = $('psec-' + k); if (el) el.style.display = (k === t) ? '' : 'none';
+        });
+        // The History and Swatches docks belong with Layers, so they follow it
+        // rather than being hidden behind their own tab.
+        document.querySelectorAll('[data-ptab-keep]').forEach(el => {
+          el.style.display = (el.dataset.ptabKeep === t) ? '' : 'none';
         });
       }
       // Remember the last tab the user chose by hand, so we don't yank them to Tool
@@ -11840,7 +13082,9 @@
           colour: existing ? existing.colour : toolColor(),
           warp: existing && existing.warp ? existing.warp : ($('ps-warp') ? $('ps-warp').value : 'none'),
           amount: existing && existing.amount != null ? existing.amount
-                  : (parseInt($('ps-warp-amt') ? $('ps-warp-amt').value : 40) || 40) / 100
+                  : (parseInt($('ps-warp-amt') ? $('ps-warp-amt').value : 40) || 40) / 100,
+          // Editing an existing text object must NOT spawn another layer.
+          editing: !!existing
         };
         ensureTextFont(key).then(() => composite()).catch(() => {});
         startCaret();
@@ -11872,7 +13116,8 @@
         // Mirror the field into the live text. Using 'input' rather than key events
         // means IME composition, autocorrect and paste all work.
         el.addEventListener('input', () => {
-          if (!liveText) return;
+          drawPuppetPins();
+        if (!liveText) return;
           liveText.str = el.value;
           composite();
         });
@@ -11974,10 +13219,34 @@
       // text is stored on the layer and re-rendered from its string/font/size. The
       // text tool can hit-test these later to re-open them for editing. A separate
       // "flatten text" bakes them to pixels only when the user explicitly wants that.
+      // When a vector shape is drawn and the current layer can't hold shapes, make
+      // a vector layer for it automatically — the way Photoshop, Affinity and
+      // Illustrator all behave. Otherwise the shape silently stamps into pixels and
+      // is no longer editable, which is a surprise you only notice later.
+      function layerForShape() {
+        const l = active();
+        if (l && l.kind === 'vector') return l;
+        const auto = $('ps-autovec');
+        if (auto && !auto.checked) return l;          // user opted out
+        const nl = addLayer('vector', 'Shape');
+        banner('New vector layer — shapes stay editable. Turn this off in Tool options.');
+        return nl;
+      }
+
       function commitText() {
         if (!liveText) return;
-        const l = active();
         const data = paintFonts[liveText.key];
+        // New text gets its OWN layer, the way Photoshop and Affinity do — so it
+        // can be moved, restyled, masked and reordered without disturbing whatever
+        // was underneath. Editing existing text (liveText.editing) stays on the
+        // layer it already belongs to.
+        let l;
+        if (liveText.editing) {
+          l = active();
+        } else {
+          const label = (liveText.str || '').trim().slice(0, 22) || 'Text';
+          l = addLayer('raster', label);
+        }
         if (!l || !data) { liveText = null; composite(); return; }
         if (!l.texts) l.texts = [];
         l.texts.push({
@@ -11988,8 +13257,8 @@
         const s = liveText.str;
         liveText = null; textDrag = null; stopCaret(); blurTextCapture();
         renderTextLayer(l);
-        composite(); pushHistory('Edited text'); renderLayerList();
-        banner(`Text set — click it again with the Text tool to edit.`);
+        composite(); pushHistory('Text'); renderLayerList();
+        banner('Text added on its own layer — click it with the Text tool to edit.');
       }
 
       // Re-render a layer's editable text objects. Text sits in its own scratch that
@@ -12258,7 +13527,30 @@
         difference:'difference', exclusion:'exclusion', hue:'hue', saturation:'saturation',
         color:'color', luminosity:'luminosity' };
       const fxOp = (b) => FX_BLEND[b] || 'source-over';
-      function layerFX(l) { return l && l.fx ? l.fx : null; }
+      // Return a layer's effects with every key guaranteed present.
+      //
+      // The renderer reads f.stroke.on, f.satin.on and so on directly, so a single
+      // missing key threw a TypeError mid-composite — and because that happened
+      // partway through drawing, the layer rendered as nothing at all. Any FX
+      // object that didn't carry all ten effects would do it: PSD imports that
+      // only specify the effects the file actually uses, effects saved by an older
+      // build, or a hand-set object. Filling in the defaults makes the renderer
+      // safe against partial data instead of relying on every producer to be
+      // exhaustive. The merged result is cached on the layer so this isn't redone
+      // on every frame.
+      function layerFX(l) {
+        if (!l || !l.fx) return null;
+        const keys = ['shadow','glowOut','innerShadow','innerGlow','satin','colorOv','gradOv','patternOv','stroke','bevel'];
+        let missing = false;
+        for (const k of keys) { if (!l.fx[k]) { missing = true; break; } }
+        if (missing) {
+          const base = defaultFX();
+          for (const k of keys) {
+            l.fx[k] = Object.assign(base[k], l.fx[k] || {});
+          }
+        }
+        return l.fx;
+      }
       const FX_KEYS = ['shadow','glowOut','innerShadow','innerGlow','satin','colorOv','gradOv','patternOv','stroke','bevel'];
       function fxActive(l) {
         const f = layerFX(l); if (!f) return false;
@@ -12493,14 +13785,30 @@
             x.globalCompositeOperation = 'destination-out';
             x.drawImage(c2, 0, 0);
           } else { // centre
-            x.globalCompositeOperation = 'destination-out';
-            const { c: c3, x: x3 } = fxCanvas('stroke3');
+            // A centred stroke straddles the edge: half its width outside the
+            // shape, half inside. So the ring is (shape grown by w/2) minus
+            // (shape shrunk by w/2).
+            //
+            // The previous version started from the FULL-width grown shape and
+            // subtracted a half-grown inverse, which cancelled out and left an
+            // empty ring — centre strokes drew nothing at all.
+            const halfGrown = fxSpread(shape, w / 2, 'stcgrow');
+            // Shrink = invert, grow, invert back.
             const inv2 = fxCanvas('stinv2');
-            inv2.x.fillStyle = '#fff'; inv2.x.fillRect(0,0,W,H);
+            inv2.x.fillStyle = '#fff'; inv2.x.fillRect(0, 0, W, H);
             inv2.x.globalCompositeOperation = 'destination-out';
             inv2.x.drawImage(shape, 0, 0);
-            x3.drawImage(fxSpread(inv2.c, w/2, 'stinvg2'), 0, 0);
-            x.drawImage(x3.canvas, 0, 0);
+            const invGrown2 = fxSpread(inv2.c, w / 2, 'stinvg2');
+            const shrunk = fxCanvas('stshrunk');
+            shrunk.x.drawImage(shape, 0, 0);
+            shrunk.x.globalCompositeOperation = 'destination-out';
+            shrunk.x.drawImage(invGrown2, 0, 0);
+            // ring = halfGrown - shrunk
+            x.globalCompositeOperation = 'source-over';
+            x.clearRect(0, 0, W, H);
+            x.drawImage(halfGrown, 0, 0);
+            x.globalCompositeOperation = 'destination-out';
+            x.drawImage(shrunk.c, 0, 0);
           }
           x.globalCompositeOperation = 'source-in';
           // Stroke can be a flat colour or its own gradient.
@@ -12689,6 +13997,249 @@
       // scale (sx,sy) and angle; the buffer is redrawn through that each frame and
       // only baked back on Apply.
       let xform = null;
+      // ── Extra filters ───────────────────────────────────────────────────────
+      // Each works on the active layer's pixels and pushes one history step, so a
+      // filter can be undone like any other edit.
+      function pixelOp(fn, label) {
+        const l = active();
+        if (!l || l.kind === 'group') return banner('Select a layer first.');
+        const img = l.ctx.getImageData(0, 0, W, H);
+        fn(img.data, W, H);
+        l.ctx.putImageData(img, 0, 0);
+        touch(l); composite(); pushHistory(); saveSoon();
+        if (label) banner(label);
+      }
+      // A 3x3 convolution, used by emboss and edge detection. Reads from a copy so
+      // neighbouring results don't feed back into each other mid-pass.
+      function convolve3(data, w, h, k, bias, mono) {
+        const src = new Uint8ClampedArray(data);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          let r=0, g=0, b=0;
+          for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+            const xx = Math.min(w-1, Math.max(0, x+i)), yy = Math.min(h-1, Math.max(0, y+j));
+            const o = (yy*w + xx) * 4, kv = k[(j+1)*3 + (i+1)];
+            r += src[o]*kv; g += src[o+1]*kv; b += src[o+2]*kv;
+          }
+          const o = (y*w + x) * 4;
+          if (mono) { const v = (r+g+b)/3 + bias; data[o]=data[o+1]=data[o+2]=v; }
+          else { data[o]=r+bias; data[o+1]=g+bias; data[o+2]=b+bias; }
+        }
+      }
+      function filterSepia() {
+        pixelOp(d => {
+          for (let i = 0; i < d.length; i += 4) {
+            const r=d[i], g=d[i+1], b=d[i+2];
+            d[i]   = r*0.393 + g*0.769 + b*0.189;
+            d[i+1] = r*0.349 + g*0.686 + b*0.168;
+            d[i+2] = r*0.272 + g*0.534 + b*0.131;
+          }
+        }, 'Sepia applied.');
+      }
+      function filterEmboss() {
+        pixelOp((d,w,h) => convolve3(d, w, h, [-2,-1,0, -1,1,1, 0,1,2], 0, true), 'Emboss applied.');
+      }
+      function filterEdges() {
+        pixelOp((d,w,h) => convolve3(d, w, h, [0,1,0, 1,-4,1, 0,1,0], 128, true), 'Edges found.');
+      }
+      function filterNoise() {
+        pixelOp(d => {
+          for (let i = 0; i < d.length; i += 4) {
+            const n = (Math.random() - 0.5) * 60;
+            d[i] += n; d[i+1] += n; d[i+2] += n;      // same offset keeps hue intact
+          }
+        }, 'Noise added.');
+      }
+      function filterPixelate() {
+        const size = 10;
+        pixelOp((d,w,h) => {
+          for (let y = 0; y < h; y += size) for (let x = 0; x < w; x += size) {
+            let r=0,g=0,b=0,a=0,n=0;
+            for (let j = 0; j < size && y+j < h; j++) for (let i = 0; i < size && x+i < w; i++) {
+              const o = ((y+j)*w + (x+i))*4;
+              r+=d[o]; g+=d[o+1]; b+=d[o+2]; a+=d[o+3]; n++;
+            }
+            r/=n; g/=n; b/=n; a/=n;
+            for (let j = 0; j < size && y+j < h; j++) for (let i = 0; i < size && x+i < w; i++) {
+              const o = ((y+j)*w + (x+i))*4;
+              d[o]=r; d[o+1]=g; d[o+2]=b; d[o+3]=a;
+            }
+          }
+        }, 'Pixelated.');
+      }
+      function filterVignette() {
+        pixelOp((d,w,h) => {
+          const cx = w/2, cy = h/2, max = Math.hypot(cx, cy);
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const o = (y*w + x)*4;
+            const t = Math.hypot(x-cx, y-cy) / max;
+            const f = 1 - Math.pow(Math.max(0, t - 0.45) / 0.55, 2) * 0.85;
+            d[o]*=f; d[o+1]*=f; d[o+2]*=f;
+          }
+        }, 'Vignette applied.');
+      }
+      function filterRipple() {
+        const l = active();
+        if (!l || l.kind === 'group') return banner('Select a layer first.');
+        const src = document.createElement('canvas');
+        src.width = W; src.height = H;
+        src.getContext('2d').drawImage(l.canvas, 0, 0);
+        const s = src.getContext('2d').getImageData(0,0,W,H).data;
+        const out = l.ctx.getImageData(0,0,W,H);
+        const d = out.data;
+        const amp = 12, len = 40;
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          const sx = Math.round(x + Math.sin(y / len) * amp);
+          const sy = Math.round(y + Math.sin(x / len) * amp);
+          const o = (y*W + x)*4;
+          if (sx < 0 || sy < 0 || sx >= W || sy >= H) { d[o+3] = 0; continue; }
+          const p = (sy*W + sx)*4;
+          d[o]=s[p]; d[o+1]=s[p+1]; d[o+2]=s[p+2]; d[o+3]=s[p+3];
+        }
+        l.ctx.putImageData(out, 0, 0);
+        touch(l); composite(); pushHistory(); saveSoon();
+        banner('Ripple applied.');
+      }
+
+      // ── Puppet warp ─────────────────────────────────────────────────────────
+      // Drop pins on the layer, drag them, and the image deforms to follow.
+      //
+      // How it works: the layer is covered with a triangle mesh. Each mesh vertex is
+      // bound to the pins by inverse-distance weighting, so dragging a pin moves
+      // nearby vertices a lot and distant ones barely at all. Every triangle is then
+      // drawn with an affine transform mapping its original corners to its moved
+      // ones. That gives smooth, local deformation without needing a real physics
+      // solver, and it's fast enough to preview live on a tablet.
+      let puppet = null;   // { pins:[{x,y,ox,oy}], grid, src, drag }
+
+      function puppetBegin() {
+        const l = active();
+        if (!l || l.kind === 'group') { banner('Select a layer first.'); return; }
+        if (l.kind === 'vector') { banner('Rasterize the vector layer first (Layers → Create & arrange).'); return; }
+        // Snapshot the layer so every preview re-warps the ORIGINAL pixels rather
+        // than compounding blur by warping an already-warped image.
+        const src = document.createElement('canvas');
+        src.width = W; src.height = H;
+        src.getContext('2d').drawImage(l.canvas, 0, 0);
+        const n = 12;                                   // grid resolution
+        puppet = { pins: [], src, n, drag: null, layerId: l.id };
+        setTool('puppet');
+        composite();
+        banner('Puppet warp — tap to add pins, then drag them. Enter applies, Esc cancels.');
+      }
+
+      // Weight of pin p on point (x,y): closer pins dominate, and the falloff is
+      // smooth so the surface doesn't crease.
+      function puppetWeights(x, y, pins) {
+        const w = [];
+        let total = 0;
+        for (let i = 0; i < pins.length; i++) {
+          const dx = x - pins[i].ox, dy = y - pins[i].oy;
+          const d2 = dx*dx + dy*dy;
+          const v = 1 / (d2 * d2 + 1e-6);              // inverse distance^4
+          w.push(v); total += v;
+        }
+        if (total > 0) for (let i = 0; i < w.length; i++) w[i] /= total;
+        return w;
+      }
+      // Where does an original point end up, given the current pin positions?
+      function puppetMap(x, y) {
+        const pins = puppet.pins;
+        if (!pins.length) return { x, y };
+        const w = puppetWeights(x, y, pins);
+        let dx = 0, dy = 0;
+        for (let i = 0; i < pins.length; i++) {
+          dx += w[i] * (pins[i].x - pins[i].ox);
+          dy += w[i] * (pins[i].y - pins[i].oy);
+        }
+        return { x: x + dx, y: y + dy };
+      }
+
+      // Draw one triangle of the source through the affine transform that carries
+      // its original corners onto its warped ones.
+      function puppetDrawTri(ctx, img, s0, s1, s2, d0, d1, d2) {
+        const x0=s0.x, y0=s0.y, x1=s1.x, y1=s1.y, x2=s2.x, y2=s2.y;
+        const u0=d0.x, v0=d0.y, u1=d1.x, v1=d1.y, u2=d2.x, v2=d2.y;
+        const den = x0*(y2-y1) - x1*y2 + x2*y1 + (x1-x2)*y0;
+        if (Math.abs(den) < 1e-9) return;
+        const a = -(y0*(u2-u1) - y1*u2 + y2*u1 + (y1-y2)*u0) / den;
+        const b =  (y1*v2 + y0*(v1-v2) - y2*v1 + (y2-y1)*v0) / den;
+        const c =  (x0*(u2-u1) - x1*u2 + x2*u1 + (x1-x2)*u0) / den;
+        const d = -(x1*v2 + x0*(v1-v2) - x2*v1 + (x2-x1)*v0) / den;
+        const e =  (x0*(y2*u1 - y1*u2) + y0*(x1*u2 - x2*u1) + (x2*y1 - x1*y2)*u0) / den;
+        const f =  (x0*(y2*v1 - y1*v2) + y0*(x1*v2 - x2*v1) + (x2*y1 - x1*y2)*v0) / den;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(u0, v0); ctx.lineTo(u1, v1); ctx.lineTo(u2, v2); ctx.closePath();
+        ctx.clip();
+        ctx.transform(a, b, c, d, e, f);
+        ctx.drawImage(img, 0, 0);
+        ctx.restore();
+      }
+
+      // Rebuild the warped layer from the snapshot.
+      function puppetApplyToCanvas(ctx) {
+        const n = puppet.n, sx = W / n, sy = H / n;
+        ctx.clearRect(0, 0, W, H);
+        if (!puppet.pins.length) { ctx.drawImage(puppet.src, 0, 0); return; }
+        // Cache the mapped grid so each vertex is only solved once.
+        const map = [];
+        for (let j = 0; j <= n; j++) {
+          map[j] = [];
+          for (let i = 0; i <= n; i++) map[j][i] = puppetMap(i*sx, j*sy);
+        }
+        for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+          const s00={x:i*sx,y:j*sy}, s10={x:(i+1)*sx,y:j*sy},
+                s01={x:i*sx,y:(j+1)*sy}, s11={x:(i+1)*sx,y:(j+1)*sy};
+          const d00=map[j][i], d10=map[j][i+1], d01=map[j+1][i], d11=map[j+1][i+1];
+          puppetDrawTri(ctx, puppet.src, s00, s10, s11, d00, d10, d11);
+          puppetDrawTri(ctx, puppet.src, s00, s11, s01, d00, d11, d01);
+        }
+      }
+      function puppetPreview() {
+        const l = layers.find(x => x.id === puppet.layerId);
+        if (!l) return;
+        puppetApplyToCanvas(l.ctx);
+        touch(l);
+        composite();
+      }
+      function puppetCommit() {
+        if (!puppet) return;
+        puppetPreview();
+        const n = puppet.pins.length;
+        puppet = null;
+        setTool('brush');
+        pushHistory(); saveSoon(); composite();
+        banner(n ? `Puppet warp applied (${n} pin${n===1?'':'s'}).` : 'Puppet warp cancelled — no pins.');
+      }
+      function puppetCancel() {
+        if (!puppet) return;
+        const l = layers.find(x => x.id === puppet.layerId);
+        if (l) { l.ctx.clearRect(0,0,W,H); l.ctx.drawImage(puppet.src, 0, 0); touch(l); }
+        puppet = null;
+        setTool('brush');
+        composite();
+        banner('Puppet warp cancelled.');
+      }
+      // Pin handles drawn over the canvas.
+      function drawPuppetPins() {
+        if (!puppet) return;
+        const r = 7 / zoom;
+        vctx.save();
+        puppet.pins.forEach((p, i) => {
+          vctx.beginPath(); vctx.arc(p.x, p.y, r, 0, Math.PI*2);
+          vctx.fillStyle = (puppet.drag === i) ? '#c2895f' : 'rgba(194,137,95,.85)';
+          vctx.fill();
+          vctx.lineWidth = 1.6 / zoom; vctx.strokeStyle = '#16191e'; vctx.stroke();
+          if (p.x !== p.ox || p.y !== p.oy) {           // show how far it's moved
+            vctx.beginPath(); vctx.moveTo(p.ox, p.oy); vctx.lineTo(p.x, p.y);
+            vctx.setLineDash([3/zoom, 3/zoom]);
+            vctx.strokeStyle = 'rgba(194,137,95,.5)'; vctx.stroke();
+            vctx.setLineDash([]);
+          }
+        });
+        vctx.restore();
+      }
+
       function beginTransform() {
         const l = active();
         if (!l || l.kind === 'vector') return banner('Transform works on a pixel layer.');
@@ -13019,6 +14570,9 @@
           })
         };
       }
+      function refreshDocks() {
+        if (window.renderSwatchDock) window.renderSwatchDock();
+      }
       function pushHistory(label) {
         try {
           // The tool that triggered this almost always drew on the active layer;
@@ -13037,6 +14591,7 @@
           if (window.renderHistoryPanel) window.renderHistoryPanel();
           saveSoon();
         } catch (e) { /* snapshots are best-effort */ }
+        refreshDocks();
       }
 
       // A readable name for whatever just happened, derived from the active tool.
@@ -13257,7 +14812,7 @@
         if (xform) { xform = null; }
         sel = null; selBounds = null; selMoveState = null;
       }
-      function undo() { if (histIndex > 0) { dropTransient(); histIndex--; restore(history[histIndex]); banner('Undo'); if (window.renderHistoryPanel) window.renderHistoryPanel(); } }
+      function undo() { if (histIndex > 0) { dropTransient(); histIndex--; restore(history[histIndex]); banner('Undo'); refreshDocks(); if (window.renderHistoryPanel) window.renderHistoryPanel(); } }
       function redo() { if (histIndex < history.length - 1) { dropTransient(); histIndex++; restore(history[histIndex]); banner('Redo'); if (window.renderHistoryPanel) window.renderHistoryPanel(); } }
 
       // Jump to any step. Later steps stay reachable until a new edit replaces them.
@@ -13276,13 +14831,30 @@
       let _saveWarned = false;
       function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 1200); }
       function save() {
+        let json;
+        try { json = JSON.stringify(snapshot()); } catch (e) { return; }
+        // IndexedDB has room for full-resolution layers, imported PSDs and custom
+        // brushes, all of which used to compete for the same ~5MB as everything
+        // else and could push the autosave over the edge without warning.
+        if (window.Store && Store.available) {
+          Store.set(SAVE_KEY, json)
+            .then(() => { _saveWarned = false; localStorage.removeItem(SAVE_KEY); })
+            .catch(() => {
+              try { localStorage.setItem(SAVE_KEY, json); _saveWarned = false; }
+              catch (e2) {
+                if (!_saveWarned) {
+                  _saveWarned = true;
+                  banner('⚠️ Artwork too large to auto-save — export it from the Files tab to keep it safe.');
+                }
+              }
+            });
+          return;
+        }
         try {
-          localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot()));
-          _saveWarned = false;   // a save succeeded again, so re-arm the warning
+          localStorage.setItem(SAVE_KEY, json);
+          _saveWarned = false;
         }
         catch (e) {
-          // Too big to autosave (localStorage is ~5MB). Warn once so the user knows
-          // to export their work manually rather than assuming it's being saved.
           if (!_saveWarned) {
             _saveWarned = true;
             banner('⚠️ Artwork too large to auto-save — export it from the Files tab to keep it safe.');
@@ -13290,6 +14862,20 @@
         }
       }
       function load(onReady) {
+        // Try IndexedDB first, then fall back to any legacy localStorage copy.
+        if (window.Store && Store.available) {
+          Store.get(SAVE_KEY).then(raw => {
+            if (!raw) raw = localStorage.getItem(SAVE_KEY);
+            if (!raw) { if (onReady) onReady(); return; }
+            try { restore(JSON.parse(raw), onReady); } catch (e) { if (onReady) onReady(); }
+          }).catch(() => {
+            try {
+              const raw = localStorage.getItem(SAVE_KEY);
+              if (raw) restore(JSON.parse(raw), onReady); else if (onReady) onReady();
+            } catch (e) { if (onReady) onReady(); }
+          });
+          return true;
+        }
         try {
           const raw = localStorage.getItem(SAVE_KEY);
           if (!raw) return false;
@@ -13983,6 +15569,25 @@
         if (tool === 'clone' && !cloneSrc) {
           banner('Tap "Set source" (or Alt+click) to pick what to clone from.'); return;
         }
+        if (tool === 'puppet' && puppet) {
+          // Grab an existing pin if one is under the finger, otherwise drop a new one.
+          const r = 12 / zoom;
+          const pt = p;
+          let hit = -1;
+          for (let i = puppet.pins.length - 1; i >= 0; i--) {
+            const pin = puppet.pins[i];
+            if (Math.hypot(pin.x - pt.x, pin.y - pt.y) <= r) { hit = i; break; }
+          }
+          if (hit < 0) {
+            puppet.pins.push({ x: pt.x, y: pt.y, ox: pt.x, oy: pt.y });
+            hit = puppet.pins.length - 1;
+            puppetPreview();
+          }
+          puppet.drag = hit;
+          drawing = true;
+          composite();
+          return;
+        }
         if (tool === 'vedit') {
           if (l.kind !== 'vector') return banner('Switch to a vector layer (VEC) to edit points.');
           const h = hitHandle(l, p);
@@ -14289,6 +15894,11 @@
         }
 
         // --- selection gestures ---
+        if (tool === 'puppet' && puppet && drawing && puppet.drag != null) {
+          const pin = puppet.pins[puppet.drag];
+          if (pin) { pin.x = p.x; pin.y = p.y; puppetPreview(); }
+          return;
+        }
         if (drawing && selDrag && /^(selrect|seloval|lasso)$/.test(tool)) {
           // Shift (or the Lock ratio toggle) keeps the selection box even — a perfect
           // square for Rectangle select, a circle for Oval select. Lasso is freehand
@@ -14423,7 +16033,8 @@
       }
 
       function onUp(e) {
-        const l = active();
+        if (tool === 'puppet' && puppet) { puppet.drag = null; drawing = false; composite(); return; }
+        let l = active();          // may be swapped for a fresh vector layer below
         if (!l) return;
 
         // --- finish a selection gesture ---
@@ -14472,6 +16083,7 @@
         }
         if (DRAG_SHAPES.test(tool)) {
           if (previewShape && drawing) {
+            l = layerForShape() || l;
             if (l.kind === 'vector') { l.shapes.push(previewShape); renderVector(l); }
             else { // stamp into pixels
               const c = l.ctx;
@@ -14495,10 +16107,11 @@
       }
 
       function finishPen() {
-        const l = active();
+        let l = active();          // may be swapped for a fresh vector layer below
         if (!l || penPts.length < 2) { penPts = []; previewShape = null; composite(); return; }
         const shape = { type:'path', pts: penPts.slice(), stroke: toolColor(), width: toolSize(),
           strokeOn: ($('ps-vstroke') && $('ps-vstroke').checked), fill: ($('ps-vfill') && $('ps-vfill').checked) ? toolColor() : 'transparent', closed: ($('ps-vfill') && $('ps-vfill').checked) };
+        l = layerForShape() || l;
         if (l.kind === 'vector') { l.shapes.push(shape); renderVector(l); }
         else {
           const c = l.ctx; c.save();
@@ -14604,34 +16217,160 @@
           ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'
           : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.9 4.2A10 10 0 0 1 12 4c6 0 10 8 10 8a18 18 0 0 1-2.3 3.2M6.6 6.6A17 17 0 0 0 2 12s4 8 10 8a9.7 9.7 0 0 0 5.4-1.6"/><path d="m2 2 20 20"/></svg>';
         eye.onclick = (ev) => { ev.stopPropagation(); l.visible = !l.visible; composite(); renderLayerList(); saveSoon(); };
+        // Grip — the visual cue that a row can be dragged.
+        row.dataset.layerId = l.id;      // needed by the drag-to-reorder logic
+        const grip = document.createElement('div');
+        grip.className = 'layer-grip';
+        grip.title = 'Drag to reorder';
+        grip.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+
+        // Thumbnail at 44px with a checkerboard behind it, so transparent areas
+        // read as transparent instead of as black — at 26px with no backing you
+        // couldn't tell an empty layer from a dark one.
+        const TH = 44;
         const th = document.createElement('canvas');
-        th.className = 'layer-thumb'; th.width = 26; th.height = 26;
+        th.className = 'layer-thumb';
+        th.width = TH * 2; th.height = TH * 2;      // 2x for crisp retina rendering
         const tc = th.getContext('2d');
-        tc.drawImage(l.canvas, 0, 0, 26, 26);
+        const sq = 8;
+        for (let yy = 0; yy < TH*2; yy += sq) for (let xx = 0; xx < TH*2; xx += sq) {
+          tc.fillStyle = (((xx + yy) / sq) % 2) ? '#2a2e35' : '#343941';
+          tc.fillRect(xx, yy, sq, sq);
+        }
+        // Fit the canvas into the square without distorting its aspect ratio.
+        if (l.canvas && l.canvas.width && l.canvas.height) {
+          const s = Math.min((TH*2) / l.canvas.width, (TH*2) / l.canvas.height);
+          const dw = l.canvas.width * s, dh = l.canvas.height * s;
+          tc.imageSmoothingQuality = 'high';
+          tc.drawImage(l.canvas, ((TH*2) - dw) / 2, ((TH*2) - dh) / 2, dw, dh);
+        }
+
+        const info = document.createElement('div');
+        info.className = 'layer-info';
         const nm = document.createElement('div');
         nm.className = 'layer-name'; nm.textContent = l.name;
         nm.ondblclick = (ev) => {
           ev.stopPropagation();
           inlineRename(nm, l.name, (v) => { l.name = v; renderLayerList(); saveSoon(); });
         };
-        const kind = document.createElement('span');
-        kind.className = 'layer-kind'; kind.textContent = l.kind === 'vector' ? 'VEC' : 'PIX';
-        row.append(eye, th, nm, kind);
+        const sub = document.createElement('div');
+        sub.className = 'layer-sub';
+        const bits = [l.kind === 'vector' ? 'VEC' : 'PIX'];
+        if (l.blend && l.blend !== 'source-over' && l.blend !== 'normal') bits.push(String(l.blend));
+        if (l.opacity != null && l.opacity < 1) bits.push(Math.round(l.opacity * 100) + '%');
+        if (l.texts && l.texts.length) bits.push('TXT');
+        if (fxActive(l)) bits.push('FX');
+        sub.textContent = bits.join(' · ');
+        info.append(nm, sub);
+
+        // Quick actions on the row itself: effects and mask, without hunting
+        // through the panel below.
+        const acts = document.createElement('div');
+        acts.className = 'layer-acts';
+        const mkAct = (title, svg, on, fn) => {
+          const b = document.createElement('button');
+          b.className = 'layer-act' + (on ? ' on' : '');
+          b.title = title; b.innerHTML = svg;
+          b.onclick = (ev) => { ev.stopPropagation(); fn(); };
+          return b;
+        };
+        acts.append(
+          mkAct('Layer effects', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>',
+            fxActive(l), () => { activeId = l.id; renderLayerList(); const o = $('fx-open'); if (o) o.click(); }),
+          mkAct(l.mask ? 'Layer mask — click to edit' : 'Add layer mask', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/><path d="M3 12h9" fill="currentColor"/></svg>',
+            !!l.mask, () => {
+              activeId = l.id;
+              if (!l.mask) {
+                const btn = $('pl-mask-add');
+                if (btn) btn.click();               // create it, then show the dialog
+              }
+              renderLayerList();
+              if (window.openMaskDialog) openMaskDialog(l);
+            })
+        );
+        row.append(grip, eye, th, info, acts);
+
+        // ── Drag to reorder ────────────────────────────────────────────────
+        // Pointer events rather than HTML5 drag-and-drop, because the latter is
+        // unreliable on touch — this needs to work on the iPad. The row follows
+        // your finger and a bar shows exactly where it will land.
+        grip.addEventListener('pointerdown', (ev) => {
+          ev.preventDefault(); ev.stopPropagation();
+          grip.setPointerCapture(ev.pointerId);
+          const list = row.parentElement;
+          if (!list) return;
+          row.classList.add('dragging');
+          let target = null, place = 'above';
+
+          const clearMarks = () => list.querySelectorAll('.layer-row').forEach(r =>
+            r.classList.remove('drop-above', 'drop-below'));
+
+          const onMove = (e) => {
+            clearMarks();
+            target = null;
+            const rows = [...list.querySelectorAll('.layer-row')].filter(r => r !== row);
+            for (const r of rows) {
+              const b = r.getBoundingClientRect();
+              if (e.clientY >= b.top && e.clientY <= b.bottom) {
+                target = r;
+                place = (e.clientY < b.top + b.height / 2) ? 'above' : 'below';
+                r.classList.add(place === 'above' ? 'drop-above' : 'drop-below');
+                break;
+              }
+            }
+          };
+          const onUp = () => {
+            grip.removeEventListener('pointermove', onMove);
+            grip.removeEventListener('pointerup', onUp);
+            grip.removeEventListener('pointercancel', onUp);
+            row.classList.remove('dragging');
+            clearMarks();
+            if (!target) return;
+            const fromId = l.id, toId = target.dataset.layerId;
+            if (!toId || toId === fromId) return;
+            const from = layers.findIndex(x => x.id === fromId);
+            let to = layers.findIndex(x => x.id === toId);
+            if (from < 0 || to < 0) return;
+            // The list is drawn top-to-bottom as topmost-first, but `layers` is
+            // bottom-first — so "above" in the UI means a HIGHER index.
+            const moved = layers.splice(from, 1)[0];
+            to = layers.findIndex(x => x.id === toId);
+            const insertAt = (place === 'above') ? to + 1 : to;
+            layers.splice(insertAt, 0, moved);
+            activeId = fromId;
+            renderLayerList(); composite(); pushHistory('Reordered layers'); saveSoon();
+          };
+          grip.addEventListener('pointermove', onMove);
+          grip.addEventListener('pointerup', onUp);
+          grip.addEventListener('pointercancel', onUp);
+        });
         if (l.mask) {
           const mth = document.createElement('canvas');
           mth.className = 'layer-mask-chip' + (maskEditing && l.id === activeId ? ' editing' : '');
           mth.width = 20; mth.height = 20;
-          mth.title = (maskEditing && l.id === activeId) ? 'Editing mask — click to stop' : 'Layer mask — click to edit';
+          mth.title = (maskEditing && l.id === activeId) ? 'Editing mask — click to stop' : 'Layer mask — click to open mask options';
           const mc = mth.getContext('2d');
           mc.fillStyle = '#3a3f47'; mc.fillRect(0,0,20,20);
           mc.fillStyle = '#2a2e35';
           for (let yy=0; yy<20; yy+=5) for (let xx=0; xx<20; xx+=5) if (((xx+yy)/5)%2) mc.fillRect(xx,yy,5,5);
           mc.drawImage(l.mask, 0, 0, 20, 20);
+          // Click toggles mask painting (the common action); right-click or a long
+          // press opens the full mask options, so both are reachable from the row.
           mth.onclick = (ev) => {
             ev.stopPropagation();
             if (l.id !== activeId) { activeId = l.id; renderLayerList(); syncLayerControls(); composite(); }
             toggleMaskPaint();
           };
+          mth.oncontextmenu = (ev) => {
+            ev.preventDefault(); ev.stopPropagation();
+            if (window.openMaskDialog) openMaskDialog(l);
+          };
+          let mHold = null;
+          mth.addEventListener('pointerdown', () => {
+            mHold = setTimeout(() => { if (window.openMaskDialog) openMaskDialog(l); }, 550);
+          });
+          ['pointerup','pointerleave','pointercancel'].forEach(ev =>
+            mth.addEventListener(ev, () => { if (mHold) clearTimeout(mHold); mHold = null; }));
           row.append(mth);
         }
         // Join/leave group toggle: puts the layer into the nearest group above it,
@@ -15104,6 +16843,11 @@
         document.querySelectorAll('#paint-tabs button[data-ptab]').forEach(b => {
           b.onclick = () => { _userPickedTab = b.dataset.ptab; showPaintTab(b.dataset.ptab); };
         });
+        // Apply the starting tab once. Without this the docks keep whatever
+        // visibility their markup had, so the Swatches dock appeared under Layers
+        // as well as under Colour — the per-tab rule only took effect after the
+        // first manual tab change.
+        showPaintTab('layers');
 
         $('ps-size').oninput = e => {
           $('ps-size-val').textContent = e.target.value;
@@ -15140,6 +16884,382 @@
           vSnapEnabled = e.target.checked;
           banner(vSnapEnabled ? 'Angle-snap on — lines lock to 0/45/90°, boxes to square.' : 'Angle-snap off — freehand shapes.');
         };
+        // ── Menu bar ──────────────────────────────────────────────────────────
+        // Everything here already existed somewhere — behind a tab, a popover or a
+        // button on a panel you had to find first. Gathering the commands under
+        // File / Edit / Layer / Filter / View puts them where anyone coming from
+        // Photoshop or GIMP will look, without changing what they do.
+        const MENUS = [
+          { name: 'File', items: [
+            { label: 'New / clear artwork',   fn: () => $('pf-clear') && $('pf-clear').click() },
+            { sep: true },
+            { label: 'Open image as layer…',  fn: () => $('pf-open') && $('pf-open').click() },
+            { label: 'Import image…',         fn: () => $('pl-import') && $('pl-import').click() },
+            { sep: true },
+            { label: 'Export image…',         fn: () => window.openExportDialog && openExportDialog('all') },
+            { label: 'Export current layer…', fn: () => window.openExportDialog && openExportDialog('layer') },
+            { sep: true },
+            { menulabel: 'Send to 3D' },
+            { label: 'Extrude shape (Image → 3D)', fn: () => $('pf-to3d') && $('pf-to3d').click() },
+            { label: 'Use as texture',             fn: () => $('pf-to3d-tex') && $('pf-to3d-tex').click() },
+            { label: 'Place as flat image',        fn: () => $('pf-to3d-plane') && $('pf-to3d-plane').click() }
+          ]},
+          { name: 'Edit', items: [
+            { label: 'Undo',        fn: () => undo(),  key: 'Ctrl Z' },
+            { label: 'Redo',        fn: () => redo(),  key: 'Ctrl ⇧ Z' },
+            { sep: true },
+            { label: 'Select all',  fn: () => { const m = new Uint8Array(W*H).fill(1); selFromMask(m); composite(); banner('Selected the whole canvas.'); }, key: 'Ctrl A' },
+            { label: 'Deselect',    fn: () => { clearSelection(); composite(); banner('Deselected.'); }, key: 'Ctrl D' },
+            { sep: true },
+            { label: 'Keyboard shortcuts…', fn: () => $('keys-open') && $('keys-open').click() }
+          ]},
+          { name: 'Layer', items: [
+            { label: 'New layer',          fn: () => $('pl-add') && $('pl-add').click() },
+            { label: 'New vector layer',   fn: () => $('pl-add-vec') && $('pl-add-vec').click() },
+            { label: 'New group',          fn: () => $('pl-add-group') && $('pl-add-group').click() },
+            { label: 'Duplicate layer',    fn: () => $('pl-dup') && $('pl-dup').click() },
+            { label: 'Delete layer',       fn: () => $('pl-del') && $('pl-del').click() },
+            { sep: true },
+            { menulabel: 'Arrange' },
+            { label: 'Move up',            fn: () => $('pl-up') && $('pl-up').click() },
+            { label: 'Move down',          fn: () => $('pl-down') && $('pl-down').click() },
+            { sep: true },
+            { label: 'Merge down',         fn: () => $('pl-merge') && $('pl-merge').click() },
+            { label: 'Rasterize layer',    fn: () => $('pl-rasterize') && $('pl-rasterize').click() },
+            { label: 'Flatten text',       fn: () => $('pl-flatten-text') && $('pl-flatten-text').click() },
+            { sep: true },
+            { label: 'Add layer mask',     fn: () => $('pl-mask-add') && $('pl-mask-add').click() },
+            { label: 'Layer effects…',     fn: () => $('fx-open') && $('fx-open').click() }
+          ]},
+          { name: 'Filter', items: [
+            { menulabel: 'Adjust' },
+            { label: 'Brightness / contrast…', fn: () => showPaintTab('image') },
+            { label: 'Levels…',                fn: () => showPaintTab('image') },
+            { label: 'Curves…',                fn: () => showPaintTab('image') },
+            { sep: true },
+            { menulabel: 'Stylise' },
+            { label: 'Blur',        fn: () => $('pi-blur') && $('pi-blur').click() },
+            { label: 'Sharpen',     fn: () => $('pi-sharpen') && $('pi-sharpen').click() },
+            { label: 'Emboss',      fn: () => $('pi-emboss') && $('pi-emboss').click() },
+            { label: 'Find edges',  fn: () => $('pi-edges') && $('pi-edges').click() },
+            { label: 'Pixelate',    fn: () => $('pi-pixelate') && $('pi-pixelate').click() },
+            { label: 'Add noise',   fn: () => $('pi-noise') && $('pi-noise').click() },
+            { label: 'Vignette',    fn: () => $('pi-vignette') && $('pi-vignette').click() },
+            { sep: true },
+            { menulabel: 'Distort' },
+            { label: 'Puppet warp', fn: () => $('pi-puppet') && $('pi-puppet').click() },
+            { label: 'Ripple',      fn: () => $('pi-ripple') && $('pi-ripple').click() }
+          ]},
+          { name: 'View', items: [
+            { label: 'Zoom in',   fn: () => $('ps-zoom-in') && $('ps-zoom-in').click() },
+            { label: 'Zoom out',  fn: () => $('ps-zoom-out') && $('ps-zoom-out').click() },
+            { label: 'Fit to screen', fn: () => $('ps-zoom-fit') && $('ps-zoom-fit').click() },
+            { sep: true },
+            { label: 'Layers panel',   fn: () => showPaintTab('layers') },
+            { label: 'Tool options',   fn: () => showPaintTab('tool') },
+            { label: 'Image panel',    fn: () => showPaintTab('image') },
+            { label: 'Files panel',    fn: () => showPaintTab('files') }
+          ]}
+        ];
+        function buildMenus() {
+          const bar = $('paint-menubar'); if (!bar) return;
+          bar.innerHTML = '';
+          let openDrop = null;
+          const closeAll = () => {
+            bar.querySelectorAll('.menu-drop').forEach(d => d.classList.remove('open'));
+            bar.querySelectorAll('.menu-btn').forEach(b => b.classList.remove('open'));
+            openDrop = null;
+          };
+          MENUS.forEach(m => {
+            const wrap = document.createElement('div');
+            wrap.style.position = 'relative';
+            const btn = document.createElement('button');
+            btn.className = 'menu-btn'; btn.textContent = m.name;
+            const drop = document.createElement('div');
+            drop.className = 'menu-drop';
+            m.items.forEach(it => {
+              if (it.sep) { const s = document.createElement('div'); s.className = 'menu-sep'; drop.appendChild(s); return; }
+              if (it.menulabel) { const l = document.createElement('div'); l.className = 'menu-label'; l.textContent = it.menulabel; drop.appendChild(l); return; }
+              const b = document.createElement('button');
+              b.className = 'menu-item';
+              b.innerHTML = '<span>' + it.label + '</span>' + (it.key ? '<span class="mi-key">' + it.key + '</span>' : '');
+              b.onclick = () => { closeAll(); try { it.fn(); } catch (e) { console.error(e); } };
+              drop.appendChild(b);
+            });
+            btn.onclick = (e) => {
+              e.stopPropagation();
+              const wasOpen = drop.classList.contains('open');
+              closeAll();
+              if (!wasOpen) { drop.classList.add('open'); btn.classList.add('open'); openDrop = drop; }
+            };
+            // Hovering across the bar with a menu open switches menus, as desktop
+            // apps do — otherwise you have to click each one.
+            btn.onmouseenter = () => {
+              if (openDrop && openDrop !== drop) { closeAll(); drop.classList.add('open'); btn.classList.add('open'); openDrop = drop; }
+            };
+            wrap.append(btn, drop);
+            bar.appendChild(wrap);
+          });
+          document.addEventListener('click', closeAll);
+        }
+        buildMenus();
+
+        // ── Colour wheel ──────────────────────────────────────────────────────
+        // A hue ring with a saturation/value square inside it, the way GIMP and
+        // Photoshop's wheel picker work. Previously the only picker was a square
+        // hidden inside a popover, so choosing a colour meant opening something
+        // first. This sits permanently in the swatches dock.
+        const wheelCv = $('dk-wheel');
+        if (wheelCv) {
+          const WC = wheelCv.getContext('2d', { willReadFrequently: true });
+          const SZ = 200, R_OUT = 96, R_IN = 74, CX = 100, CY = 100;
+          let wheelDrag = null;
+
+          function drawWheel() {
+            WC.clearRect(0, 0, SZ, SZ);
+            // Hue ring, drawn as fine wedges.
+            for (let a = 0; a < 360; a++) {
+              const s = (a - 0.6) * Math.PI / 180, e = (a + 1.2) * Math.PI / 180;
+              WC.beginPath();
+              WC.arc(CX, CY, R_OUT, s, e);
+              WC.arc(CX, CY, R_IN, e, s, true);
+              WC.closePath();
+              WC.fillStyle = 'hsl(' + a + ',100%,50%)';
+              WC.fill();
+            }
+            // Saturation / value square inside the ring, in the current hue.
+            const half = R_IN * 0.70;
+            const box = { x: CX - half, y: CY - half, w: half * 2, h: half * 2 };
+            const g1 = WC.createLinearGradient(box.x, 0, box.x + box.w, 0);
+            g1.addColorStop(0, '#fff');
+            g1.addColorStop(1, 'hsl(' + Math.round(fg.h) + ',100%,50%)');
+            WC.fillStyle = g1; WC.fillRect(box.x, box.y, box.w, box.h);
+            const g2 = WC.createLinearGradient(0, box.y, 0, box.y + box.h);
+            g2.addColorStop(0, 'rgba(0,0,0,0)');
+            g2.addColorStop(1, '#000');
+            WC.fillStyle = g2; WC.fillRect(box.x, box.y, box.w, box.h);
+            // Hue marker on the ring.
+            const ha = fg.h * Math.PI / 180;
+            const hx = CX + Math.cos(ha) * (R_IN + R_OUT) / 2;
+            const hy = CY + Math.sin(ha) * (R_IN + R_OUT) / 2;
+            WC.beginPath(); WC.arc(hx, hy, 6, 0, Math.PI*2);
+            WC.strokeStyle = '#fff'; WC.lineWidth = 2.5; WC.stroke();
+            WC.strokeStyle = '#000'; WC.lineWidth = 1; WC.stroke();
+            // Marker in the square.
+            const sx = box.x + fg.s * box.w;
+            const sy = box.y + (1 - fg.v) * box.h;
+            WC.beginPath(); WC.arc(sx, sy, 6, 0, Math.PI*2);
+            WC.strokeStyle = '#fff'; WC.lineWidth = 2.5; WC.stroke();
+            WC.strokeStyle = '#000'; WC.lineWidth = 1; WC.stroke();
+            wheelCv._box = box;
+          }
+          function wheelPick(e) {
+            const r = wheelCv.getBoundingClientRect();
+            const x = (e.clientX - r.left) * (SZ / r.width);
+            const y = (e.clientY - r.top) * (SZ / r.height);
+            const dx = x - CX, dy = y - CY, dist = Math.hypot(dx, dy);
+            const box = wheelCv._box;
+            if (wheelDrag === 'ring' || (wheelDrag === null && dist <= R_OUT + 6 && dist >= R_IN - 6)) {
+              wheelDrag = 'ring';
+              let a = Math.atan2(dy, dx) * 180 / Math.PI;
+              if (a < 0) a += 360;
+              fg.h = a;
+            } else if (wheelDrag === 'sv' || (wheelDrag === null && box &&
+                       x >= box.x - 6 && x <= box.x + box.w + 6 && y >= box.y - 6 && y <= box.y + box.h + 6)) {
+              wheelDrag = 'sv';
+              fg.s = Math.max(0, Math.min(1, (x - box.x) / box.w));
+              fg.v = Math.max(0, Math.min(1, 1 - (y - box.y) / box.h));
+            } else { return; }
+            syncColorUI();
+            drawWheel();
+            const chip = $('dk-sw-chip'); if (chip) chip.style.background = toolColor();
+            const hx2 = $('dk-hex'); if (hx2) hx2.value = toolColor();
+          }
+          wheelCv.addEventListener('pointerdown', (e) => {
+            wheelCv.setPointerCapture(e.pointerId);
+            wheelDrag = null; wheelPick(e);
+          });
+          wheelCv.addEventListener('pointermove', (e) => { if (wheelDrag) wheelPick(e); });
+          ['pointerup','pointercancel'].forEach(ev =>
+            wheelCv.addEventListener(ev, () => { wheelDrag = null; }));
+          const hexIn = $('dk-hex');
+          if (hexIn) hexIn.oninput = () => {
+            const c = fromHex(hexIn.value, fg.a);
+            if (c) { fg = c; syncColorUI(); drawWheel();
+              const chip = $('dk-sw-chip'); if (chip) chip.style.background = toolColor(); }
+          };
+          window.redrawWheel = () => {
+            drawWheel();
+            const chip = $('dk-sw-chip'); if (chip) chip.style.background = toolColor();
+            if (hexIn && document.activeElement !== hexIn) hexIn.value = toolColor();
+          };
+          drawWheel();
+          if (hexIn) hexIn.value = toolColor();
+        }
+
+        // ── Layer mask dialog ────────────────────────────────────────────────
+        // Opens from a layer's own row. It drives the same underlying actions the
+        // old Mask subsection did — those buttons still exist, hidden, so the
+        // behaviour is identical and there's only one implementation of each.
+        let maskDlgLayer = null;
+        function drawMaskPreview() {
+          const cv = $('mask-preview'); if (!cv) return;
+          const x = cv.getContext('2d');
+          x.clearRect(0, 0, cv.width, cv.height);
+          const l = maskDlgLayer;
+          if (!l || !l.mask) {
+            x.fillStyle = '#22262c'; x.fillRect(0, 0, cv.width, cv.height);
+            x.fillStyle = '#6a7380'; x.font = '12px sans-serif'; x.textAlign = 'center';
+            x.fillText('No mask on this layer', cv.width / 2, cv.height / 2);
+            return;
+          }
+          const s = Math.min(cv.width / W, cv.height / H);
+          const dw = W * s, dh = H * s;
+          x.fillStyle = '#15181d'; x.fillRect(0, 0, cv.width, cv.height);
+          x.drawImage(l.mask, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+        }
+        function openMaskDialog(l) {
+          maskDlgLayer = l;
+          activeId = l.id;
+          const t = $('mask-dlg-title');
+          if (t) t.textContent = 'Layer mask — ' + (l.name || 'Layer');
+          const hasMask = !!l.mask;
+          ['mask-dlg-paint','mask-dlg-invert','mask-dlg-apply','mask-dlg-del'].forEach(id => {
+            const b = $(id); if (b) b.disabled = !hasMask;
+          });
+          drawMaskPreview();
+          $('mask-backdrop').classList.add('open');
+          $('mask-dialog').classList.add('open');
+        }
+        function closeMaskDialog() {
+          $('mask-backdrop').classList.remove('open');
+          $('mask-dialog').classList.remove('open');
+          maskDlgLayer = null;
+        }
+        window.openMaskDialog = openMaskDialog;
+        const mbd = $('mask-backdrop'); if (mbd) mbd.onclick = closeMaskDialog;
+        const mcl = $('mask-dlg-close'); if (mcl) mcl.onclick = closeMaskDialog;
+        // Each button defers to the existing (now hidden) control, so there is
+        // exactly one implementation of every mask action.
+        const relay = (id, target, close) => {
+          const b = $(id); if (!b) return;
+          b.onclick = () => {
+            const t = $(target); if (t) t.click();
+            if (close) closeMaskDialog(); else { drawMaskPreview(); renderLayerList(); }
+          };
+        };
+        relay('mask-dlg-paint',  'pl-mask-paint',  true);
+        relay('mask-dlg-invert', 'pl-mask-invert', false);
+        relay('mask-dlg-apply',  'pl-mask-apply',  true);
+        relay('mask-dlg-del',    'pl-mask-del',    true);
+
+        // ── Colour tab: fg/bg pair and a starting palette ────────────────────
+        // Swatches start empty otherwise, which makes the panel look broken on a
+        // first run. These are a neutral working set — greys plus the primaries and
+        // secondaries — that anyone can paint with immediately and delete if they
+        // don't want them.
+        const DEFAULT_SWATCHES = [
+          '#000000','#404040','#808080','#bfbfbf','#ffffff',
+          '#c2895f','#8b5a3c','#e0b060',
+          '#e04040','#e08040','#e0d040','#60c060','#40a0c0','#4060c0','#8040c0','#c04090'
+        ];
+        function syncFgBg() {
+          const f = $('dk-fg-sw'), g = $('dk-bg-sw');
+          if (f) f.style.background = toHex(fg);
+          if (g) g.style.background = toHex(bg);
+        }
+        const fgSw = $('dk-fg-sw');
+        if (fgSw) fgSw.onclick = () => { showPaintTab('colour'); banner('Foreground — pick with the wheel below.'); };
+        const bgSw = $('dk-bg-sw');
+        if (bgSw) bgSw.onclick = () => {
+          const t = fg; fg = bg; bg = t; syncColorUI(); syncFgBg();
+          banner('Background is now the foreground.');
+        };
+        const swapBtn = $('dk-swap');
+        if (swapBtn) swapBtn.onclick = () => {
+          const t = fg; fg = bg; bg = t; syncColorUI(); syncFgBg();
+        };
+        window.syncFgBg = syncFgBg;
+        syncFgBg();
+
+        // ── Stacked docks: history + swatches ────────────────────────────────
+        // These sit under the layer list so the three things you use together are
+        // visible at once, rather than each hidden behind its own tab.
+        const DOCK_KEY = 'modelsmith_docks_v1';
+        // Swatches (with the colour wheel) open by default because you reach for
+        // colour constantly; History starts collapsed so the wheel is visible
+        // without scrolling on a laptop-height panel.
+        let dockState = { history: false, swatches: true };
+        try {
+          const raw = localStorage.getItem(DOCK_KEY);
+          if (raw) dockState = Object.assign(dockState, JSON.parse(raw));
+        } catch (e) {}
+        function applyDocks() {
+          document.querySelectorAll('.dock').forEach(d => {
+            const head = d.querySelector('.dock-head');
+            if (!head) return;
+            d.classList.toggle('collapsed', !dockState[head.dataset.dock]);
+          });
+        }
+        document.querySelectorAll('.dock-head').forEach(h => {
+          h.onclick = () => {
+            const k = h.dataset.dock;
+            dockState[k] = !dockState[k];
+            applyDocks();
+            try { localStorage.setItem(DOCK_KEY, JSON.stringify(dockState)); } catch (e) {}
+          };
+        });
+        applyDocks();
+
+        // Swatches: a saved palette that persists, shown permanently.
+        const SW_KEY = 'modelsmith_paint_swatches_v1';
+        let swatches = [];
+        try {
+          const raw = localStorage.getItem(SW_KEY);
+          // No stored palette yet (rather than a deliberately emptied one) — seed it.
+          swatches = raw ? JSON.parse(raw) : DEFAULT_SWATCHES.slice();
+          if (!Array.isArray(swatches)) swatches = DEFAULT_SWATCHES.slice();
+        } catch (e) { swatches = DEFAULT_SWATCHES.slice(); }
+        function saveSwatches() {
+          try { localStorage.setItem(SW_KEY, JSON.stringify(swatches.slice(0, 64))); } catch (e) {}
+        }
+        window.renderSwatchDock = function renderSwatchDock() {
+          const grid = $('dk-sw-grid'); if (!grid) return;
+          const chip = $('dk-sw-chip');
+          if (chip) chip.style.background = toolColor();
+          const cnt = $('dk-sw-count');
+          if (cnt) cnt.textContent = swatches.length ? String(swatches.length) : '';
+          grid.innerHTML = '';
+          swatches.forEach((c, i) => {
+            const b = document.createElement('button');
+            b.className = 'dk-sw'; b.style.background = c; b.title = c;
+            b.onclick = () => {
+              const parsed = fromHex(c, fg.a);
+              if (parsed) { fg = parsed; syncColorUI(); }
+              if (window.renderSwatchDock) renderSwatchDock();
+            };
+            b.oncontextmenu = (e) => {
+              e.preventDefault();
+              swatches.splice(i, 1); saveSwatches(); renderSwatchDock();
+            };
+            let hold = null;
+            b.addEventListener('pointerdown', () => {
+              hold = setTimeout(() => { swatches.splice(i, 1); saveSwatches(); renderSwatchDock(); }, 600);
+            });
+            ['pointerup','pointerleave','pointercancel'].forEach(ev =>
+              b.addEventListener(ev, () => { if (hold) clearTimeout(hold); hold = null; }));
+            grid.appendChild(b);
+          });
+        };
+        const swAdd = $('dk-sw-add');
+        if (swAdd) swAdd.onclick = () => {
+          const c = toolColor();
+          if (!swatches.includes(c)) { swatches.unshift(c); saveSwatches(); }
+          renderSwatchDock();
+          banner('Saved ' + c + ' to swatches.');
+        };
+        renderSwatchDock();
+
         // Text warp — retunes the live text as you drag, so you can see the shape.
         const warpSel = $('ps-warp'), warpAmt = $('ps-warp-amt'), warpVal = $('ps-warp-amt-val');
         const applyWarp = (commit) => {
@@ -15315,7 +17435,37 @@
           });
         }
 
+        // Live preview of the active layer with its effects applied. Mirrors the
+        // mask dialog's preview: you can see the result while tuning, instead of
+        // closing the dialog to check and reopening to adjust.
+        function fxDrawPreview() {
+          const cv = document.getElementById('fx-preview-canvas');
+          if (!cv) return;
+          const x = cv.getContext('2d');
+          const l = active();
+          x.clearRect(0, 0, cv.width, cv.height);
+          // Checkerboard so transparency reads as transparency.
+          const sq = 10;
+          for (let yy = 0; yy < cv.height; yy += sq) for (let xx = 0; xx < cv.width; xx += sq) {
+            x.fillStyle = (((xx + yy) / sq) % 2) ? '#23272d' : '#2b3038';
+            x.fillRect(xx, yy, sq, sq);
+          }
+          if (!l || l.kind === 'group') return;
+          try {
+            // renderLayerWithFX gives the layer exactly as it composites, so the
+            // preview can't drift from the real result.
+            const full = renderLayerWithFX(l, l.canvas);
+            const s = Math.min(cv.width / W, cv.height / H);
+            const dw = W * s, dh = H * s;
+            x.drawImage(full, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+          } catch (e) { /* preview is optional — never let it break the dialog */ }
+        }
+        window.fxDrawPreview = fxDrawPreview;
+
         function fxBuildDetail() {
+          // Any rebuild of the detail pane means something changed — keep the
+          // preview in step.
+          setTimeout(() => { if (window.fxDrawPreview) fxDrawPreview(); }, 0);
           const box = $('fx-detail'); if (!box) return;
           const schema = FX_SCHEMA.find(s => s.key === fxSel) || FX_SCHEMA[0];
           const l = fxTargetLayer();
@@ -15360,6 +17510,11 @@
               if (valEl) valEl.textContent = type === 'pct' ? Math.round(v*100) + '%'
                 : type === 'deg' ? v + '\u00b0' : v;
               if (fxPreview) composite();
+              // Refresh the dialog preview on EVERY change, not just on commit —
+              // it was previously inside the !live branch, so dragging a slider
+              // updated the canvas behind the dialog but left the preview stale
+              // until you let go.
+              if (window.fxDrawPreview) fxDrawPreview();
               if (!live) { pushHistory(); saveSoon(); syncFXPanel();
                 if (schema.key === 'stroke' && key === 'fill') fxBuildDetail(); }
             };
@@ -15416,6 +17571,7 @@
           $('fx-backdrop').classList.add('open');
           $('fx-dialog').classList.add('open');
           fxBuildList(); fxBuildDetail();
+          if (window.fxDrawPreview) fxDrawPreview();
         }
         function fxCloseDialog() {
           $('fx-backdrop').classList.remove('open');
@@ -15614,6 +17770,14 @@
         if ($('pi-posterize')) $('pi-posterize').onclick = posterizeLayer;
         if ($('pi-sharpen')) $('pi-sharpen').onclick = sharpenLayer;
         if ($('pi-grayscale')) $('pi-grayscale').onclick = grayscaleLayer;
+        if ($('pi-sepia'))    $('pi-sepia').onclick = filterSepia;
+        if ($('pi-emboss'))   $('pi-emboss').onclick = filterEmboss;
+        if ($('pi-edges'))    $('pi-edges').onclick = filterEdges;
+        if ($('pi-noise'))    $('pi-noise').onclick = filterNoise;
+        if ($('pi-pixelate')) $('pi-pixelate').onclick = filterPixelate;
+        if ($('pi-vignette')) $('pi-vignette').onclick = filterVignette;
+        if ($('pi-ripple'))   $('pi-ripple').onclick = filterRipple;
+        if ($('pi-puppet'))   $('pi-puppet').onclick = puppetBegin;
 
         $('ps-zoom-in').onclick = () => { zoom = Math.min(8, zoom * 1.25); sizeWrap(); };
         $('ps-zoom-out').onclick = () => { zoom = Math.max(0.05, zoom / 1.25); sizeWrap(); };
@@ -15688,6 +17852,107 @@
           if (row) row.style.display = e.target.value === 'png' ? 'none' : '';   // quality applies to jpg/webp
         };
         if ($('pf-quality')) $('pf-quality').oninput = e => $('pf-quality-val').textContent = e.target.value;
+        // ── Export dialog ─────────────────────────────────────────────────────
+        // Name and format used to live in the Files panel while the export button
+        // was in the File menu, so you had to visit two places to change one
+        // thing. This asks for both at the point you export. It writes the values
+        // through to the existing Files-panel controls and then triggers the same
+        // doExport path, so there's still one implementation of the export itself.
+        let expScope = 'all';
+        function expSyncExt() {
+          const f = $('exp-format');
+          const ext = f ? f.value : 'png';
+          const e = $('exp-ext'); if (e) e.textContent = '.' + ext;
+          const row = $('exp-quality-row');
+          if (row) row.style.display = (ext === 'png') ? 'none' : '';
+        }
+        function openExportDialog(scope) {
+          expScope = scope || 'all';
+          document.querySelectorAll('#exp-scope .toggle-btn').forEach(b =>
+            b.classList.toggle('active', b.dataset.scope === expScope));
+          // Seed from the panel so the dialog reflects whatever is already set.
+          const pf = $('pf-format'), pn = $('pf-name'), pq = $('pf-quality');
+          if (pf && $('exp-format')) $('exp-format').value = (pf.value === 'jpeg') ? 'jpg' : pf.value;
+          if (pq && $('exp-quality')) { $('exp-quality').value = pq.value; $('exp-quality-val').textContent = pq.value; }
+          const nameField = $('exp-name');
+          if (nameField) {
+            const l = active();
+            // Suggest from the SCOPE first. Reading the stored panel name first
+            // meant "Export current layer" still proposed the whole-image name,
+            // so you'd save a single layer under a misleading filename.
+            const suggested = (expScope === 'layer')
+              ? ((l && l.name) || 'layer')
+              : ((pn && pn.value.trim()) || 'artwork');
+            nameField.value = suggested;
+            delete nameField.dataset.touched;   // fresh dialog, fresh suggestion
+          }
+          expSyncExt();
+          expNote();
+          $('exp-backdrop').classList.add('open');
+          $('exp-dialog').classList.add('open');
+          setTimeout(() => { if (nameField) nameField.select(); }, 30);
+        }
+        function closeExportDialog() {
+          $('exp-backdrop').classList.remove('open');
+          $('exp-dialog').classList.remove('open');
+        }
+        function expNote() {
+          const n = $('exp-note'); if (!n) return;
+          const fmt = $('exp-format') ? $('exp-format').value : 'png';
+          const l = active();
+          const bits = [];
+          if (expScope === 'layer') bits.push('Exporting "' + ((l && l.name) || 'current layer') + '" only.');
+          else bits.push('Exporting all visible layers, flattened.');
+          if (fmt === 'jpg') bits.push('JPG has no transparency — transparent areas become white.');
+          n.textContent = bits.join(' ');
+        }
+        document.querySelectorAll('#exp-scope .toggle-btn').forEach(b => {
+          b.onclick = () => {
+            expScope = b.dataset.scope;
+            document.querySelectorAll('#exp-scope .toggle-btn').forEach(x =>
+              x.classList.toggle('active', x === b));
+            const nameField = $('exp-name');
+            if (nameField && !nameField.dataset.touched) {
+              const l = active();
+              nameField.value = expScope === 'layer' ? ((l && l.name) || 'layer') : 'artwork';
+            }
+            expNote();
+          };
+        });
+        if ($('exp-name')) $('exp-name').oninput = (e) => { e.target.dataset.touched = '1'; };
+        if ($('exp-format')) $('exp-format').onchange = () => { expSyncExt(); expNote(); };
+        if ($('exp-quality')) $('exp-quality').oninput = (e) => { $('exp-quality-val').textContent = e.target.value; };
+        if ($('exp-close'))  $('exp-close').onclick  = closeExportDialog;
+        if ($('exp-cancel')) $('exp-cancel').onclick = closeExportDialog;
+        if ($('exp-backdrop')) $('exp-backdrop').onclick = closeExportDialog;
+        if ($('exp-go')) $('exp-go').onclick = () => {
+          // Push the dialog's choices into the panel controls, which are what
+          // exportFormat() and exportName() read.
+          const pf = $('pf-format'), pn = $('pf-name'), pq = $('pf-quality');
+          if (pf) { pf.value = $('exp-format').value; if (pf.onchange) pf.onchange({ target: pf }); }
+          if (pq && $('exp-quality')) pq.value = $('exp-quality').value;
+          const nm = ($('exp-name').value || '').trim();
+          closeExportDialog();
+          // doExport reads the name from the shared panel field, so set it for the
+          // duration of this export. For a layer export we restore the previous
+          // value afterwards, otherwise the layer's name would silently become the
+          // default for the next whole-image export.
+          const prevName = pn ? pn.value : null;
+          if (pn) pn.value = nm;
+          try {
+            if (expScope === 'layer') {
+              const l = active();
+              if (!l) return banner('Select a layer first.');
+              doExport(l.canvas, l.name || 'layer');
+            } else {
+              doExport(flatten(), 'artwork');
+            }
+          } finally {
+            if (pn && expScope === 'layer') pn.value = prevName;
+          }
+        };
+        window.openExportDialog = openExportDialog;
+
         $('pf-png').onclick = () => doExport(flatten(), 'artwork');
         $('pf-png-layer').onclick = () => { const l = active(); if (l) doExport(l.canvas, l.name || 'layer'); };
         $('pf-to3d').onclick = () => {
@@ -15759,6 +18024,15 @@
           // While text is live the canvas is the text field, so keystrokes must be
           // consumed here BEFORE any tool shortcut matching — otherwise typing "b"
           // would switch to the brush instead of adding a letter.
+          // Puppet warp owns the keyboard while it's active.
+          if (puppet) {
+            if (k === 'enter')  { e.preventDefault(); puppetCommit(); return; }
+            if (k === 'escape') { e.preventDefault(); puppetCancel(); return; }
+            if (k === 'backspace') {
+              e.preventDefault();
+              puppet.pins.pop(); puppetPreview(); composite(); return;
+            }
+          }
           if (liveText) {
             if (k === 'escape') {
               e.preventDefault();
@@ -16104,7 +18378,11 @@
         </div>
         <div class="fx-dlg-body">
           <div class="fx-list" id="fx-list"><!-- built at runtime --></div>
-          <div class="fx-detail" id="fx-detail"><!-- built at runtime --></div>
+          <div class="fx-side">
+            <canvas class="fx-preview-canvas" id="fx-preview-canvas" width="260" height="150"></canvas>
+            <div class="fx-preview-cap" id="fx-preview-cap">Live preview</div>
+            <div class="fx-detail" id="fx-detail"><!-- built at runtime --></div>
+          </div>
         </div>
         <div class="fx-dlg-foot">
           <label class="hud-check" style="margin-right:auto;"><input type="checkbox" id="fx-preview" checked> Preview</label>
@@ -16230,5 +18508,434 @@
     })();
   </script>
 
+  <script>
+    // ── 3D tool chevrons + floating options (standalone) ─────────────────────
+    // This is deliberately OUTSIDE the 3D engine's script block. That block bails
+    // out early if WebGL/three.js isn't available, and when it did the tool rail
+    // silently lost its mode chevrons and the floating options bar. None of this
+    // needs the engine — it's DOM wiring that talks to the existing panel
+    // controls — so it runs on its own.
+    (function () {
+      function build() {
+        // Mode flyouts on tools that have modes.
+        const MODES = {
+          paint: { label: 'Paint modes', items: [
+            { name: 'Brush',  hint: 'Paint freehand with a radius', apply: () => pick('paint-mode', 'brush') },
+            { name: 'Face',   hint: 'Fill one flat face at a time', apply: () => pick('paint-mode', 'face') },
+            { name: 'Object', hint: 'Recolour the whole object',    apply: () => pick('paint-mode', 'object') }
+          ]},
+          slice: { label: 'Slice options', items: [
+            { name: 'Keep both halves', hint: 'Cut and keep each side', apply: () => clickId('slice-keep-both') },
+            { name: 'Keep front half',  hint: 'Discard the back',       apply: () => clickId('slice-keep-pos') },
+            { name: 'Keep back half',   hint: 'Discard the front',      apply: () => clickId('slice-keep-neg') }
+          ]}
+        };
+        const clickId = (id) => { const e = document.getElementById(id); if (e) e.click(); };
+        function pick(groupId, val) {
+          const g = document.getElementById(groupId);
+          if (!g) return;
+          const b = g.querySelector('[data-pmode="' + val + '"]');
+          if (b) b.click();
+        }
+        let fly = null;
+        const closeFly = () => { if (fly) { fly.remove(); fly = null; } };
+        function openFly(cfg, slot) {
+          closeFly();
+          const f = document.createElement('div');
+          f.className = 't3-flyout';
+          cfg.items.forEach(it => {
+            const b = document.createElement('button');
+            b.className = 't3-fly-btn';
+            b.innerHTML = '<span class="t3-fly-txt"><b>' + it.name + '</b><small>' + it.hint + '</small></span>';
+            b.onclick = () => { it.apply(); closeFly(); };
+            f.appendChild(b);
+          });
+          document.body.appendChild(f);
+          const r = slot.getBoundingClientRect();
+          f.style.top = (r.bottom + 6) + 'px';
+          const w = f.getBoundingClientRect().width;
+          f.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left - 4)) + 'px';
+          fly = f;
+          setTimeout(() => document.addEventListener('pointerdown', onDown, { once: true }), 0);
+          function onDown(e) {
+            if (f.contains(e.target)) { setTimeout(() => document.addEventListener('pointerdown', onDown, { once: true }), 0); return; }
+            closeFly();
+          }
+        }
+        Object.keys(MODES).forEach(id => {
+          const btn = document.getElementById('tool-' + id);
+          if (!btn || btn.parentElement.classList.contains('t3-slot')) return;
+          const slot = document.createElement('div');
+          slot.className = 't3-slot';
+          btn.parentElement.insertBefore(slot, btn);
+          slot.appendChild(btn);
+          const chev = document.createElement('button');
+          chev.className = 't3-chev';
+          chev.title = MODES[id].label;
+          chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m8 10 4 4 4-4"/></svg>';
+          chev.onclick = (e) => { e.stopPropagation(); openFly(MODES[id], slot); };
+          slot.appendChild(chev);
+        });
+
+        // Floating options — mirror the panel controls so each setting still has
+        // one source of truth.
+        function mirror(hudId, panelId, fmt, valId) {
+          const h = document.getElementById(hudId), p = document.getElementById(panelId);
+          if (!h) return;
+          const out = valId ? document.getElementById(valId) : null;
+          const show = () => { if (out) out.textContent = fmt ? fmt(h.value) : h.value; };
+          // Adopt the panel's range but NOT its step: the 3D panel's brush size uses
+          // a fine step that renders as "6.02" in a compact bar. Keep the whole
+          // numbers the floating control declares.
+          if (p) { h.value = p.value; if (p.min !== '') h.min = p.min; if (p.max !== '') h.max = p.max; }
+          h.oninput = () => { if (p) { p.value = h.value; if (p.oninput) p.oninput({ target: p }); } show(); };
+          if (p) { const prev = p.oninput; p.oninput = (e) => { if (prev) prev(e); h.value = p.value; show(); }; }
+          show();
+        }
+        mirror('t3-paint-size', 'paint-brush-size', v => Math.round(+v), 't3-paint-size-val');
+        mirror('t3-paint-opacity', 'paint-opacity', v => Math.round(+v) + '%', 't3-paint-opacity-val');
+        mirror('t3-slice-off',  'slice-off',  v => (+v).toFixed(1) + ' mm', 't3-slice-off-val');
+        mirror('t3-fillet-rad', 'bld-fillet-rad', v => (+v).toFixed(1) + ' mm', 't3-fillet-rad-val');
+        const col = document.getElementById('t3-paint-color'), pcol = document.getElementById('paint-color');
+        if (col && pcol) {
+          col.value = pcol.value;
+          col.oninput = () => { pcol.value = col.value; if (pcol.oninput) pcol.oninput({ target: pcol }); };
+        }
+        const relay = (a, bId) => { const h = document.getElementById(a); if (h) h.onclick = () => clickId(bId); };
+        relay('t3-slice-run', 'bld-slice-run');
+        relay('t3-fillet-run', 'bld-fillet-run');
+
+        // Show the group matching the active tool. Watching the rail's own
+        // highlight means this works no matter how the tool was chosen.
+        function sync() {
+          const active = document.querySelector('#tool-rail button[data-tool].active');
+          const t = active ? active.dataset.tool : null;
+          let any = false;
+          document.querySelectorAll('.t3-hud-group').forEach(g => {
+            const on = g.dataset.t3for === t;
+            g.classList.toggle('show', on);
+            if (on) any = true;
+          });
+          // The divider only makes sense when there are options after it.
+          const sep = document.getElementById('t3-sep');
+          if (sep) sep.classList.toggle('show', any);
+          // The transform bar itself is shown/hidden by the selection logic; when
+          // a tool has options but nothing is selected, show it anyway so the
+          // options are reachable.
+          const bar = document.getElementById('floating-hud');
+          if (bar && any && bar.style.display === 'none') bar.style.display = 'flex';
+        }
+        const rail = document.getElementById('tool-rail');
+        if (rail) {
+          new MutationObserver(sync).observe(rail, { attributes: true, subtree: true, attributeFilter: ['class'] });
+          rail.addEventListener('click', () => setTimeout(sync, 0));
+        }
+        sync();
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);
+      else build();
+    })();
+  </script>
+  <script>
+    // ── 3D menu bar (standalone) ─────────────────────────────────────────────
+    // Mirrors the 2D studio's File/Edit/... bar so both workspaces are consistent.
+    // Every entry drives an existing panel control rather than reimplementing the
+    // command, so there's one implementation of each and the panels stay usable.
+    // Deliberately outside the 3D engine's script block, which bails out early
+    // without WebGL — the menu should still be there to explain what's missing.
+    (function () {
+      function build() {
+        const bar = document.getElementById('model-menubar');
+        if (!bar || bar.dataset.built) return;
+        bar.dataset.built = '1';
+        const hit = (id) => { const e = document.getElementById(id); if (e) e.click(); };
+        const tab = (t) => { const b = document.querySelector('#side-tabs button[data-tab="' + t + '"]'); if (b) b.click(); };
+        const prim = (p) => { const b = document.querySelector('[data-prim="' + p + '"]'); if (b) b.click(); };
+        const tool = (t) => { const b = document.getElementById('tool-' + t); if (b) b.click(); };
+
+        const MENUS = [
+          { name: 'File', items: [
+            { label: 'Import model…',        fn: () => hit('bld-dropzone') },
+            { sep: true },
+            { label: 'Export STL',           fn: () => hit('bld-export-stl') },
+            { label: 'Export OBJ',           fn: () => hit('bld-export-obj') },
+            { label: 'Export 3MF',           fn: () => hit('bld-export-3mf') },
+            { sep: true },
+            { label: 'Saved versions',       fn: () => tab('ie') },
+            { label: 'Print check…',         fn: () => { tab('ie'); setTimeout(() => hit('pc-run'), 250); } },
+            { sep: true },
+            { label: 'Save session now',     fn: () => hit('bld-session-save') },
+            { label: 'Clear scene',          fn: () => hit('bld-session-clear') }
+          ]},
+          { name: 'Edit', items: [
+            { label: 'Undo',            fn: () => hit('bld-undo'), key: 'Ctrl Z' },
+            { label: 'Redo',            fn: () => hit('bld-redo'), key: 'Ctrl \u21e7 Z' },
+            { label: 'History…',        fn: () => hit('bld-history') },
+            { sep: true },
+            { label: 'Select all',      fn: () => hit('bld-select-all'), key: 'Ctrl A' },
+            { label: 'Deselect',        fn: () => hit('bld-select-none') },
+            { label: 'Multi-select on/off', fn: () => hit('bld-multiselect-toggle') },
+            { sep: true },
+            { label: 'Duplicate',       fn: () => hit('bld-duplicate') },
+            { label: 'Delete',          fn: () => hit('bld-delete') },
+            { label: 'Drop to plate',   fn: () => hit('bld-settle') },
+            { sep: true },
+            { label: 'Keyboard shortcuts…', fn: () => hit('keys-open') }
+          ]},
+          { name: 'Create', items: [
+            { menulabel: 'Primitives' },
+            { label: 'Cube', fn: () => prim('box'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>' },
+            { label: 'Sphere', fn: () => prim('sphere'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="9" ry="3.6"/><ellipse cx="12" cy="12" rx="3.6" ry="9"/></svg>' },
+            { label: 'Cylinder', fn: () => prim('cylinder'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12a7 3 0 0 0 14 0V6"/></svg>' },
+            { label: 'Cone', fn: () => prim('cone'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3 4.5 18"/><path d="M12 3l7.5 15"/><ellipse cx="12" cy="18" rx="7.5" ry="3"/></svg>' },
+            { label: 'Wedge', fn: () => prim('wedge'), icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 19h18L21 8 3 19Z"/><path d="M21 8 9 12l-6 7"/></svg>' },
+            { sep: true },
+            { label: '3D text…',        fn: () => window.openBuilderDialog && openBuilderDialog('text3d') },
+            { label: 'Image → 3D…',     fn: () => window.openBuilderDialog && openBuilderDialog('img3d') },
+            { label: 'Screw thread…',   fn: () => window.openBuilderDialog && openBuilderDialog('thread') },
+            { label: 'Sketch',          fn: () => tool('sketch') }
+          ]},
+          { name: 'Modify', items: [
+            { menulabel: 'Combine' },
+            { label: 'Subtract',   fn: () => hit('bld-boolean-subtract') },
+            { label: 'Intersect',  fn: () => hit('bld-boolean-intersect') },
+            { label: 'Split',      fn: () => hit('bld-boolean-split') },
+            { sep: true },
+            { label: 'Group',      fn: () => hit('bld-group') },
+            { label: 'Ungroup',    fn: () => hit('bld-ungroup') },
+            { label: 'Merge',      fn: () => hit('bld-merge') },
+            { sep: true },
+            { menulabel: 'Arrange' },
+            { label: 'Mirror X',   fn: () => hit('bld-mirror-x') },
+            { label: 'Mirror Y',   fn: () => hit('bld-mirror-y') },
+            { label: 'Mirror Z',   fn: () => hit('bld-mirror-z') },
+            { menulabel: 'Align' },
+            { label: 'Align min',   fn: () => hit('bld-align-min') },
+            { label: 'Align centre',fn: () => hit('bld-align-mid') },
+            { label: 'Align max',   fn: () => hit('bld-align-max') },
+            { label: 'Distribute',  fn: () => hit('bld-distribute') },
+            { label: 'Align axis…', fn: () => tab('edit'), key: 'Edit' },
+            { sep: true },
+            { label: 'Smooth',     fn: () => hit('bld-smooth-run') },
+            { label: 'Repair mesh', fn: () => hit('bld-repair-mesh') }
+          ]},
+          { name: 'Tools', items: [
+            { label: 'Select & transform', fn: () => tool('select') },
+            { label: 'Sketch',             fn: () => tool('sketch') },
+            { label: 'Push / pull',        fn: () => tool('pushpull') },
+            { label: 'Sculpt',             fn: () => tool('sculpt') },
+            { sep: true },
+            { label: 'Slice',              fn: () => tool('slice') },
+            { label: 'Fillet',             fn: () => tool('fillet') },
+            { label: 'Paint',              fn: () => tool('paint') },
+            { label: 'Mould / cast',       fn: () => tool('mold') },
+            { label: 'Measure',            fn: () => tool('measure') }
+          ]},
+          { name: 'View', items: [
+            { label: 'Frame selection', fn: () => hit('bld-frame-sel') },
+            { label: 'Frame all',       fn: () => hit('bld-frame-all') },
+            { sep: true },
+            { menulabel: 'Panels' },
+            { label: 'Select',          fn: () => tab('select') },
+            { label: 'Create',          fn: () => tab('create') },
+            { label: 'Edit',            fn: () => tab('edit') },
+            { label: 'Import / export', fn: () => tab('ie') }
+          ]}
+        ];
+
+        let open = null;
+        const closeAll = () => {
+          bar.querySelectorAll('.menu-drop').forEach(d => d.classList.remove('open'));
+          bar.querySelectorAll('.menu-btn').forEach(b => b.classList.remove('open'));
+          open = null;
+        };
+        MENUS.forEach(m => {
+          const wrap = document.createElement('div');
+          wrap.style.position = 'relative';
+          const btn = document.createElement('button');
+          btn.className = 'menu-btn'; btn.textContent = m.name;
+          const drop = document.createElement('div');
+          drop.className = 'menu-drop';
+          m.items.forEach(it => {
+            if (it.sep) { const s = document.createElement('div'); s.className = 'menu-sep'; drop.appendChild(s); return; }
+            if (it.menulabel) { const l = document.createElement('div'); l.className = 'menu-label'; l.textContent = it.menulabel; drop.appendChild(l); return; }
+            const b = document.createElement('button');
+            b.className = 'menu-item';
+            b.innerHTML = (it.icon ? '<span class="mi-icon">' + it.icon + '</span>' : '') +
+                          '<span>' + it.label + '</span>' +
+                          (it.key ? '<span class="mi-key">' + it.key + '</span>' : '');
+            b.onclick = () => { closeAll(); try { it.fn(); } catch (e) { console.error(e); } };
+            drop.appendChild(b);
+          });
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            const was = drop.classList.contains('open');
+            closeAll();
+            if (!was) { drop.classList.add('open'); btn.classList.add('open'); open = drop; }
+          };
+          btn.onmouseenter = () => {
+            if (open && open !== drop) { closeAll(); drop.classList.add('open'); btn.classList.add('open'); open = drop; }
+          };
+          wrap.append(btn, drop);
+          bar.appendChild(wrap);
+        });
+        document.addEventListener('click', closeAll);
+      }
+      function boot() {
+        build();
+        // The renderer sizes itself to the workspace at start-up. Adding the menu
+        // bar changes that height AFTER the engine has measured, so without this
+        // the canvas keeps its old size — which showed up as a 0-height viewport.
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 400);
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
+  <script>
+    // ── Builder dialogs with live preview ────────────────────────────────────
+    // 3D text, Image → 3D and Thread each have enough settings to warrant a
+    // window. Rather than rebuilding their controls (which would give two sets to
+    // keep in sync), the existing sidebar section is MOVED into the dialog and
+    // moved back on close — one set of controls, one implementation.
+    //
+    // The preview runs its own tiny three.js scene so it can't disturb the real
+    // one. It's rebuilt from the same generator the Add button uses, so what you
+    // see is what gets added.
+    (function () {
+      const CFG = {
+        text3d: { section: 'sec-text3d', title: '3D text',      run: 'bld-text3d-run' },
+        img3d:  { section: 'sec-img3d',  title: 'Image → 3D',   run: null },
+        thread: { section: 'sec-thread', title: 'Screw thread', run: 'bld-thread-run' }
+      };
+      let openKey = null, home = null, homeNext = null;
+      let pr = null;   // { renderer, scene, camera, mesh }
+
+      function ensurePreview() {
+        if (pr || typeof THREE === 'undefined') return pr;
+        const cv = document.getElementById('bd-preview');
+        if (!cv) return null;
+        try {
+          const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+          renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+          const scene = new THREE.Scene();
+          const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 3000);
+          scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+          const key = new THREE.DirectionalLight(0xffffff, 0.85);
+          key.position.set(60, -80, 120); scene.add(key);
+          const rim = new THREE.DirectionalLight(0x88aaff, 0.35);
+          rim.position.set(-70, 60, -40); scene.add(rim);
+          pr = { renderer, scene, camera, mesh: null, rot: 0.6, tilt: 0.9, drag: null };
+          // Drag to orbit the preview.
+          cv.style.touchAction = 'none';
+          cv.addEventListener('pointerdown', e => { pr.drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); });
+          cv.addEventListener('pointermove', e => {
+            if (!pr.drag) return;
+            pr.rot += (e.clientX - pr.drag.x) * 0.01;
+            pr.tilt = Math.max(0.15, Math.min(Math.PI - 0.15, pr.tilt + (e.clientY - pr.drag.y) * 0.01));
+            pr.drag = { x: e.clientX, y: e.clientY };
+            frame();
+          });
+          ['pointerup','pointercancel'].forEach(ev => cv.addEventListener(ev, () => { pr.drag = null; }));
+        } catch (e) { console.error('preview unavailable', e); pr = null; }
+        return pr;
+      }
+      function frame() {
+        if (!pr || !pr.mesh) return;
+        const cv = pr.renderer.domElement;
+        const w = cv.clientWidth || 280, h = cv.clientHeight || 220;
+        pr.renderer.setSize(w, h, false);
+        pr.camera.aspect = w / h; pr.camera.updateProjectionMatrix();
+        const box = new THREE.Box3().setFromObject(pr.mesh);
+        const sph = box.getBoundingSphere(new THREE.Sphere());
+        const d = Math.max(6, sph.radius / Math.sin((pr.camera.fov * Math.PI / 180) / 2) * 1.15);
+        pr.camera.position.set(
+          sph.center.x + d * Math.sin(pr.tilt) * Math.cos(pr.rot),
+          sph.center.y + d * Math.sin(pr.tilt) * Math.sin(pr.rot),
+          sph.center.z + d * Math.cos(pr.tilt));
+        pr.camera.up.set(0, 0, 1);
+        pr.camera.lookAt(sph.center);
+        pr.renderer.render(pr.scene, pr.camera);
+      }
+      function setPreviewGeometry(geo) {
+        if (!ensurePreview()) return;
+        if (pr.mesh) { pr.scene.remove(pr.mesh); pr.mesh.geometry.dispose(); pr.mesh = null; }
+        if (!geo) { pr.renderer.clear(); return; }
+        pr.mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb0b8c8, roughness: 0.35, metalness: 0.05 }));
+        pr.scene.add(pr.mesh);
+        frame();
+      }
+      // Ask the app for a preview of the current settings. The generators live in
+      // the 3D engine, which exposes them for this purpose.
+      function refreshPreview() {
+        const cap = document.getElementById('bd-preview-cap');
+        try {
+          const fn = window.MS_PREVIEW && window.MS_PREVIEW[openKey];
+          if (!fn) { setPreviewGeometry(null); if (cap) cap.textContent = 'Preview not available'; return; }
+          const geo = fn();
+          setPreviewGeometry(geo);
+          if (cap) cap.textContent = geo ? 'Live preview — drag to rotate' : 'Nothing to preview yet';
+        } catch (e) {
+          setPreviewGeometry(null);
+          if (cap) cap.textContent = 'Preview unavailable for these settings';
+        }
+      }
+      let debounce = null;
+      function schedule() { clearTimeout(debounce); debounce = setTimeout(refreshPreview, 220); }
+      // Generators that need an async resource (a font, say) call this once it is
+      // ready so the preview fills in rather than staying blank.
+      window.MS_PREVIEW_REFRESH = () => { if (openKey) refreshPreview(); };
+
+      function open(key) {
+        const cfg = CFG[key]; if (!cfg) return;
+        const sec = document.getElementById(cfg.section); if (!sec) return;
+        if (openKey) close();
+        openKey = key;
+        home = sec.parentElement; homeNext = sec.nextSibling;
+        const host = document.getElementById('bd-controls');
+        host.innerHTML = '';
+        sec.style.display = '';          // the section may be tab-hidden in the panel
+        host.appendChild(sec);
+        document.getElementById('bd-title').textContent = cfg.title;
+        document.getElementById('bd-backdrop').classList.add('open');
+        document.getElementById('bd-dialog').classList.add('open');
+        // Any control change re-previews.
+        host.addEventListener('input', schedule);
+        host.addEventListener('change', schedule);
+        setTimeout(refreshPreview, 60);
+      }
+      function close() {
+        if (!openKey) return;
+        const sec = document.getElementById(CFG[openKey].section);
+        if (sec && home) home.insertBefore(sec, homeNext);   // put it back where it lives
+        document.getElementById('bd-backdrop').classList.remove('open');
+        document.getElementById('bd-dialog').classList.remove('open');
+        setPreviewGeometry(null);
+        openKey = null; home = null; homeNext = null;
+      }
+      function apply() {
+        const cfg = CFG[openKey];
+        const runId = cfg && cfg.run;
+        if (runId) { const b = document.getElementById(runId); if (b) b.click(); }
+        else if (openKey === 'img3d') {
+          const b = document.getElementById('bld-img3d-regen');
+          if (b) b.click();
+        }
+        close();
+      }
+      document.addEventListener('DOMContentLoaded', wire);
+      if (document.readyState !== 'loading') wire();
+      function wire() {
+        const c = document.getElementById('bd-close'), x = document.getElementById('bd-cancel'),
+              a = document.getElementById('bd-apply'), bg = document.getElementById('bd-backdrop');
+        if (c) c.onclick = close;
+        if (x) x.onclick = close;
+        if (bg) bg.onclick = close;
+        if (a) a.onclick = apply;
+      }
+      window.openBuilderDialog = open;
+    })();
+  </script>
 </body>
 </html>
