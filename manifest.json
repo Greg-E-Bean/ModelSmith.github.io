@@ -1,8 +1,8 @@
 {
   "name": "ModelSmith",
   "short_name": "ModelSmith",
-  "description": "ModelSmith \u2014 CAD suite (v1.6.9)",
-  "version": "1.6.9",
+  "description": "ModelSmith \u2014 CAD suite (v1.7.0)",
+  "version": "1.7.0",
   "start_url": "/ModelSmith.github.io/index.html",
   "scope": "/ModelSmith.github.io/",
   "display": "standalone",
