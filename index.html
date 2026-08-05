@@ -914,43 +914,43 @@
        smoothing strength, align axis, mirror-keep) because those are the
        parameters the menu commands read; what they lose is the duplicated
        buttons. The elements stay in the DOM because the menu items click them. */
-    .app-container.menus #sec-primitives,
-    .app-container.menus #sec-booleans { display: none !important; }
+    .app-container.menus:not(.panels) #sec-primitives:not(.ms-show),
+    .app-container.menus:not(.panels) #sec-booleans:not(.ms-show) { display: none !important; }
     /* These three open as dialogs from the Create menu. The sections are MOVED
        into the dialog when it opens (not duplicated), so they're hidden here only
        while they're sitting in the sidebar. */
-    .app-container.menus #sec-text3d,
-    .app-container.menus #sec-img3d,
-    .app-container.menus #sec-thread { display: none !important; }
+    .app-container.menus:not(.panels) #sec-text3d:not(.ms-show),
+    .app-container.menus:not(.panels) #sec-img3d:not(.ms-show),
+    .app-container.menus:not(.panels) #sec-thread:not(.ms-show) { display: none !important; }
     /* ...but visible once inside the dialog. */
     #bd-controls #sec-text3d,
     #bd-controls #sec-img3d,
     #bd-controls #sec-thread { display: block !important; }
-    .app-container.menus #bld-select-all,
-    .app-container.menus #bld-select-none,
-    .app-container.menus #bld-frame-sel,
-    .app-container.menus #bld-frame-all,
-    .app-container.menus #bld-multiselect-toggle,
-    .app-container.menus #bld-mirror-x,
-    .app-container.menus #bld-mirror-y,
-    .app-container.menus #bld-mirror-z,
-    .app-container.menus #bld-group,
-    .app-container.menus #bld-ungroup,
-    .app-container.menus #bld-merge,
-    .app-container.menus #bld-align-min,
-    .app-container.menus #bld-align-mid,
-    .app-container.menus #bld-align-max,
-    .app-container.menus #bld-distribute,
-    .app-container.menus #bld-smooth-run,
-    .app-container.menus #bld-repair-mesh,
-    .app-container.menus #bld-export-stl,
-    .app-container.menus #bld-export-obj,
-    .app-container.menus #bld-export-3mf,
-    .app-container.menus #bld-session-save,
-    .app-container.menus #bld-session-clear,
-    .app-container.menus #bld-duplicate,
-    .app-container.menus #bld-settle,
-    .app-container.menus #bld-delete { display: none !important; }
+    .app-container.menus:not(.panels) #bld-select-all:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-select-none:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-frame-sel:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-frame-all:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-multiselect-toggle:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-mirror-x:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-mirror-y:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-mirror-z:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-group:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-ungroup:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-merge:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-align-min:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-align-mid:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-align-max:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-distribute:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-smooth-run:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-repair-mesh:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-export-stl:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-export-obj:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-export-3mf:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-session-save:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-session-clear:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-duplicate:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-settle:not(.ms-show),
+    .app-container.menus:not(.panels) #bld-delete:not(.ms-show) { display: none !important; }
 
     /* ── 3D tool flyouts ───────────────────────────────────────────────────
        Tools with modes (paint brush/face/object, slice, fillet) get a chevron
@@ -1014,6 +1014,97 @@
       .bd-preview-col { width: auto; border-right: none; border-bottom: 1px solid var(--line); height: 190px; }
     }
 
+    /* Files dialog: one window for export, import, saved versions and the print
+       check. Its panels are the SAME sections that lived in the sidebar — they're
+       moved in when it opens and put back when it closes, so nothing is
+       duplicated and every control keeps working. */
+    .fd-tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line);
+      flex-shrink: 0; overflow-x: auto; }
+    .fd-tabs button { background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--text-muted); cursor: pointer; font-family: var(--font); font-size: 11.5px;
+      padding: 10px 12px; white-space: nowrap; }
+    .fd-tabs button:hover { color: var(--text); }
+    .fd-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .fd-body { padding: 14px 16px 18px; overflow-y: auto; flex: 1; min-height: 0; }
+    #fd-dialog { display: none; }
+    #fd-dialog.open { display: flex; flex-direction: column; }
+    @media (pointer: coarse) { .fd-tabs button { padding: 14px 14px; font-size: 13px; } }
+
+    #me-dialog { display: none; }
+    #me-dialog.open { display: flex; flex-direction: column; }
+
+    /* Tabs that only exist when full panels are switched on. */
+    .panels-only:not(.ms-show) { display: none !important; }
+    .app-container.panels .panels-only,
+    .panels-only.ms-show { display: inline-flex !important; }
+
+    /* ── Object browser ────────────────────────────────────────────────────
+       A grid of rendered thumbnails, one per top-level object, so you can see
+       what's in the scene and pick things without hunting in the viewport. Groups
+       show as a single tile since that's how they select. */
+    .ob-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .ob-tile { position: relative; aspect-ratio: 1; border-radius: 6px; cursor: pointer;
+      background: var(--s-900); border: 1px solid var(--line); overflow: hidden;
+      padding: 0; display: block; transition: border-color .12s ease, transform .1s ease; }
+    .ob-tile:hover { border-color: var(--accent); }
+    .ob-tile.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .ob-tile canvas { width: 100%; height: 100%; display: block; }
+    .ob-name { position: absolute; left: 0; right: 0; bottom: 0; font-size: 9px;
+      padding: 3px 4px; background: linear-gradient(transparent, rgba(12,14,18,.92) 55%);
+      color: var(--text-dim); white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; text-align: center; }
+    .ob-tile.sel .ob-name { color: var(--accent); }
+    .ob-badge { position: absolute; top: 3px; right: 4px; font-family: var(--mono);
+      font-size: 8px; color: var(--text-muted); background: rgba(12,14,18,.8);
+      border-radius: 3px; padding: 1px 4px; }
+    .ob-hidden { opacity: .4; }
+    .ob-count { font-family: var(--mono); font-size: 9px; color: var(--accent);
+      background: var(--accent-dim); border-radius: 20px; padding: 2px 7px; }
+    .ob-empty { grid-column: 1 / -1; font-size: 11px; color: var(--text-muted);
+      padding: 14px 6px; text-align: center; }
+    @media (pointer: coarse) { .ob-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    /* Panel manager: one row per hideable panel, with an eye showing whether it's
+       on. */
+    .pn-list { max-height: 46vh; overflow-y: auto; }
+    .pn-row { display: flex; align-items: center; gap: 9px; width: 100%;
+      background: none; border: 1px solid transparent; border-radius: 5px;
+      padding: 8px 9px; cursor: pointer; color: var(--text-dim);
+      font-family: var(--font); font-size: 12px; text-align: left; }
+    .pn-row:hover { background: var(--s-750); color: var(--text); }
+    .pn-row.on { color: var(--text); }
+    .pn-eye { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-muted); }
+    .pn-row.on .pn-eye { color: var(--accent); }
+    .pn-label { flex: 1; min-width: 0; }
+    .pn-where { font-size: 9.5px; color: var(--text-muted); font-family: var(--mono); }
+    #pn-dialog { display: none; }
+    #pn-dialog.open { display: block; }
+    @media (pointer: coarse) { .pn-row { padding: 12px 10px; font-size: 13px; } }
+
+    /* ── Pin the panel tabs ────────────────────────────────────────────────
+       The tab bars live inside the scrolling sidebar, so as soon as a panel had
+       enough content to scroll they slid off the top — measured at y=-626 with
+       all panels enabled, i.e. completely unreachable without scrolling back up.
+       Sticking them to the top keeps Select/Edit/Files always tappable, which
+       matters most on a touch screen where there's no scrollbar to grab. */
+    .side-tabs, .paint-app .side-tabs {
+      position: sticky; top: 0; z-index: 30;
+      background: var(--s-800);
+      border-bottom: 1px solid var(--line);
+    }
+    /* The section title under the tabs sticks too, so you always know which
+       panel you're looking at. */
+    .panel-head { position: sticky; top: 35px; z-index: 29; background: var(--s-800); }
+    @media (pointer: coarse) { .panel-head { top: 45px; } }
+
+    /* Inline rename field, used by both the layer list and the object browser. */
+    .ms-rename { flex: 1; min-width: 0; width: 100%; font-family: var(--font);
+      font-size: 11.5px; padding: 3px 6px; border-radius: 4px;
+      background: var(--s-900); color: var(--text);
+      border: 1px solid var(--accent); outline: none; }
+    .ob-tile .ms-rename { position: absolute; left: 3px; right: 3px; bottom: 3px;
+      width: auto; font-size: 10px; z-index: 3; }
+
     /* ── Layer mask dialog ─────────────────────────────────────────────────
        Mask controls used to sit in a subsection of the Layers panel, away from
        the layer they act on. They now open from the layer's own row. */
@@ -1060,14 +1151,14 @@
        app becomes a column: menu on top, then that row underneath. */
     /* Any workspace with a menu bar becomes a column: menu on top, then the
        workspace/sidebar row underneath. Applies to both 2D and 3D. */
-    .app-container.menus { flex-direction: column; }
-    .app-container.menus > .workspace,
-    .app-container.menus > .sidebar { height: auto; }
-    .app-container.menus .pa-body { display: flex; flex: 1; min-height: 0; width: 100%; }
+    .app-container.menus:not(.panels) { flex-direction: column; }
+    .app-container.menus:not(.panels) > .workspace,
+    .app-container.menus:not(.panels) > .sidebar { height: auto; }
+    .app-container.menus:not(.panels) .pa-body { display: flex; flex: 1; min-height: 0; width: 100%; }
     .menubar { display: none; align-items: center; gap: 1px; padding: 0 6px;
       background: var(--s-880, var(--s-850)); border-bottom: 1px solid var(--line);
       height: 28px; flex-shrink: 0; position: relative; z-index: 120; }
-    .app-container.menus .menubar { display: flex; }
+    .app-container.menus:not(.panels) .menubar { display: flex; }
     .menu-btn { background: none; border: none; color: var(--text-dim); cursor: pointer;
       font-family: var(--font); font-size: 11.5px; padding: 5px 10px; border-radius: 4px;
       transition: background .1s ease, color .1s ease; }
@@ -1173,11 +1264,15 @@
       display: flex; align-items: center; justify-content: center; pointer-events: none;
       background: rgba(194,137,95,.08); color: var(--accent); font-family: var(--mono);
       font-size: 12px; letter-spacing: .5px; z-index: 30; }
+    /* Measured at 1180px wide, this bar held 727px of controls inside a 444px
+       box and wrapped into FOUR rows — 83px tall and hard to read. Letting it use
+       the viewport width keeps it to one or two rows. */
     .paint-hud { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
       display: flex; gap: 6px; align-items: center; background: rgba(24,28,34,.94);
-      border: 1px solid var(--line); border-radius: var(--r-md); padding: 6px 8px;
-      backdrop-filter: blur(10px); z-index: 20; flex-wrap: wrap; max-width: 94%;
-      justify-content: center; row-gap: 5px; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+      border: 1px solid var(--line); border-radius: var(--r-md); padding: 6px 10px;
+      backdrop-filter: blur(10px); z-index: 20; flex-wrap: wrap; max-width: calc(100% - 24px);
+      width: max-content; justify-content: center; row-gap: 5px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.35); }
     /* Groups get a subtle divider so a wrapped HUD still reads as tidy sections
        rather than one run-on row of controls. */
     .paint-hud .hud-group:not(:last-child) { padding-right: 6px; border-right: 1px solid var(--line-soft); }
@@ -1797,19 +1892,19 @@
        dozen inline handlers, which is more risk than this is worth. What the
        panels keep is SETTINGS (export filename, format, quality, blend mode,
        opacity); what they lose is duplicated ACTIONS. */
-    .paint-app.menus #lsub-new { display: none; }
+    .paint-app.menus:not(.panels) #lsub-new:not(.ms-show) { display: none; }
     /* Mask controls now live in the dialog opened from a layer's own row, so the
        subsection is hidden. Its buttons remain in the DOM as the dialog's
        targets — one implementation, reached from the layer it belongs to. */
-    .paint-app #lsub-mask { display: none; }
-    .paint-app.menus #psec-files .pf-import-block { display: none; }
-    .paint-app.menus #pf-png,
-    .paint-app.menus #pf-png-layer,
-    .paint-app.menus #pf-to3d,
-    .paint-app.menus #pf-to3d-tex,
-    .paint-app.menus #pf-to3d-plane,
-    .paint-app.menus #pf-clear { display: none; }
-    .paint-app.menus #psec-files .pf-hidden-label { display: none; }
+    .paint-app:not(.panels) #lsub-mask { display: none; }
+    .paint-app.menus:not(.panels) #psec-files .pf-import-block { display: none; }
+    .paint-app.menus:not(.panels) #pf-png:not(.ms-show),
+    .paint-app.menus:not(.panels) #pf-png-layer:not(.ms-show),
+    .paint-app.menus:not(.panels) #pf-to3d:not(.ms-show),
+    .paint-app.menus:not(.panels) #pf-to3d-tex:not(.ms-show),
+    .paint-app.menus:not(.panels) #pf-to3d-plane:not(.ms-show),
+    .paint-app.menus:not(.panels) #pf-clear:not(.ms-show) { display: none; }
+    .paint-app.menus:not(.panels) #psec-files .pf-hidden-label { display: none; }
 
     /* ── Layer rows: bigger thumbnails + drag to reorder ───────────────────
        The 26px thumbnail was too small to tell layers apart once a document had
@@ -1988,7 +2083,142 @@
       .hbtn { padding: 0 8px; }
       .hbtn .hbtn-label { display: none; }
     }
-  </style>
+      /* ── Touch sizing ──────────────────────────────────────────────────────
+       Measured on an iPad-sized viewport, 49 controls in the 2D studio were under
+       40px — menu items at 24px tall, swatches at 21px, zoom buttons at 32px.
+       Apple's guidance is a 44pt minimum and these are genuinely fiddly with a
+       finger. This grows them ONLY on touch devices, so the pointer-driven layout
+       stays as compact as it is now. */
+    @media (pointer: coarse) {
+      .menu-btn { padding: 13px 14px; font-size: 13px; }
+      /* Legacy colour popover: its 21px swatches are the single worst offender
+         (18 of them). The Colour tab has superseded most of its job, but it's
+         still reachable from the HUD swatch, so it needs to be usable. */
+      .cp-swatches button, .cp-sw { min-height: 34px; min-width: 34px; }
+      .cp-close { padding: 10px; min-width: 40px; min-height: 40px; }
+      #ps-sw-add { min-height: 34px; padding: 8px 12px; }
+      .layer-eye { min-width: 34px; min-height: 34px; }
+      .layer-group-toggle { min-width: 34px; min-height: 34px; }
+      .menu-item { padding: 12px 12px; font-size: 13.5px; }
+      .menubar { height: 44px; }
+      .app-container.menus:not(.panels) .menu-drop { top: 44px; }
+      .side-tabs button { padding: 12px 10px; }
+      .paint-hud button, .paint-hud .hud-seg-btn { min-height: 40px; min-width: 40px; }
+      .hud-seg-btn.icon-sq { width: 40px; height: 40px; }
+      .dk-sw { min-height: 34px; }
+      .cp-swatches { grid-template-columns: repeat(7, 1fr); }
+      .cp-swatches button { min-height: 32px; }
+      .layer-act { padding: 8px; }
+      .layer-act svg { width: 16px; height: 16px; }
+      .layer-grip { width: 22px; }
+      .lsub-head, .dock-head { padding: 12px 10px; }
+      .mini-btn { min-height: 40px; }
+      .fx-item { padding: 11px 10px; }
+      .t3-chev { padding: 8px 5px; }
+      .t3-fly-btn { padding: 12px 10px; }
+      input[type=range] { height: 28px; }
+    }
+
+    /* With every panel enabled the tab bar can hold five tabs in a 243px column,
+       which squeezed each to 45px and clipped the labels. Let it scroll
+       horizontally instead of shrinking them past legibility. */
+    /* The sidebar is a flex COLUMN, so once its content overflows the tab bar was
+       squashed by the default flex-shrink — measured at 9px tall with 17px
+       buttons, i.e. present but far too small to read or tap. It must keep its
+       full height and never shrink. */
+    .side-tabs, .paint-app .side-tabs {
+      flex: 0 0 auto; min-height: 35px;
+      overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    }
+    .panel-head { flex: 0 0 auto; }
+    @media (pointer: coarse) { .side-tabs, .paint-app .side-tabs { min-height: 45px; } }
+    .side-tabs::-webkit-scrollbar { height: 0; }
+    .side-tabs button { flex: 0 0 auto; white-space: nowrap; }
+
+    /* ── Motion ─────────────────────────────────────────────────────────────
+       Dialogs are toggled with display:none/block, and display can't be
+       transitioned — which is why only the effects dialog had any motion. CSS
+       animations DO run when an element becomes displayed, so these use
+       keyframes. Everything is short (140-180ms) and eased so it reads as
+       responsive rather than decorative, and it all collapses to nothing when
+       the person has asked for reduced motion. */
+    @keyframes ms-pop {
+      from { opacity: 0; transform: translate(-50%, -50%) scale(.96); }
+      to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+    @keyframes ms-fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes ms-drop {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes ms-rise {
+      from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+      to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    /* Centred dialogs share one pop. */
+    #pn-dialog.open, #me-dialog.open, #fd-dialog.open,
+    #exp-dialog.open, #cs-dialog.open, #mask-dialog.open, #bd-dialog.open {
+      animation: ms-pop .16s cubic-bezier(.2,.9,.3,1);
+    }
+    .mask-backdrop.open, .fx-backdrop.open, .bd-backdrop.open {
+      animation: ms-fade .16s ease;
+    }
+    /* Menus drop from the bar they belong to. */
+    .menu-drop.open { animation: ms-drop .13s cubic-bezier(.2,.9,.3,1); }
+    /* Tool flyouts and the floating bars rise into place. */
+    .t3-flyout, .rail-flyout { animation: ms-drop .13s cubic-bezier(.2,.9,.3,1); }
+    .paint-hud, .floating-hud { animation: ms-rise .18s cubic-bezier(.2,.9,.3,1); }
+
+    /* Panel sections fade in when a tab changes, so switching doesn't snap. */
+    .side-tabs button.active ~ * { }
+    #app-sidebar .section, #paint-sidebar .section { animation: ms-fade .14s ease; }
+
+    /* Layer rows and object tiles ease when they appear or change state. */
+    .ob-tile { animation: ms-fade .16s ease; }
+    .layer-row { transition: background .12s ease, border-color .12s ease, box-shadow .12s ease; }
+    .ob-tile { transition: border-color .12s ease, transform .1s ease, box-shadow .12s ease; }
+    .ob-tile:active { transform: scale(.97); }
+
+    /* Buttons get a touch of feedback on press — useful confirmation on a
+       touch screen where there's no hover state to rely on. */
+    .mini-btn, .menu-item, .pn-row, .fd-tabs button, .side-tabs button {
+      transition: background .12s ease, color .12s ease, border-color .12s ease, transform .08s ease;
+    }
+    .mini-btn:active, .pn-row:active { transform: scale(.98); }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
+    }
+
+    /* ── Resizable sidebar ─────────────────────────────────────────────────
+       A drag handle on the panel's inner edge. Useful on a PC where there's
+       screen to spare — the object browser and layer list both benefit from more
+       width — while the default stays compact. Width is remembered per
+       workspace, since the 2D and 3D panels hold different things. */
+    .side-grip { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize;
+      z-index: 40; background: transparent; touch-action: none; }
+    .side-grip::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px;
+      width: 2px; background: transparent; transition: background .12s ease; }
+    .side-grip:hover::after, .side-grip.dragging::after { background: var(--accent); }
+    /* The handle sits on whichever edge faces the canvas. Which side that is
+       depends on the panel-side preference, so it's set at runtime rather than
+       assumed — placing it on the outer edge put it against the screen rim where
+       it can't be grabbed. */
+    .side-grip[data-edge="left"]  { left: -4px; }
+    .side-grip[data-edge="right"] { right: -4px; }
+    /* Dragging must not animate, or the panel lags behind the pointer. */
+    .sidebar.resizing { transition: none !important; }
+    body.ms-resizing { cursor: col-resize; user-select: none; }
+    /* No drag handle on touch — there's no cursor to aim with and the edge
+       gesture fights with scrolling. */
+    @media (pointer: coarse) { .side-grip { display: none; } }
+
+</style>
 </head>
 <body>
 
@@ -2186,16 +2416,27 @@
 
     <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
     <div class="sidebar" id="app-sidebar">
+      <!-- Select and Create were empty once their commands moved to the menu bar
+           and their builders became dialogs; Files is now a dialog too. What's
+           left is Edit (real settings) and the tool tab, which names whatever
+           tool is in use. -->
+      <!-- Select, Create and Files are hidden by default because the menu bar and
+           dialogs cover them. View → Show all panels brings them back for anyone
+           who prefers tapping a panel over using menus. -->
       <div class="side-tabs" id="side-tabs">
         <button data-tab="select" class="active">Select</button>
-        <button data-tab="create">Create</button>
+        <button data-tab="create" class="panels-only">Create</button>
         <button data-tab="edit">Edit</button>
         <button data-tab="tool" id="tool-tab" style="display:none;">Tool</button>
-        <button data-tab="ie">Files</button>
+        <button data-tab="ie" class="panels-only">Files</button>
       </div>
       <div class="panel-head" id="panel-title">Select</div>
 
       <div class="section" id="sec-select-mini" data-tab="select">
+        <div class="section-label" style="margin-top:14px;">Objects <span class="ob-count" id="ob-count"></span></div>
+        <div class="hint" style="text-align:left; margin-top:0; margin-bottom:8px;">Tap a thumbnail to select it. Double-tap to frame it in the view.</div>
+        <div class="ob-grid" id="ob-grid"></div>
+
         <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 4 7.07 17 2.51-7.39L21 11.07 4 4Z"/></svg>Selection</div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; font-size:11px;">
           <span style="color:var(--text-dim);">Objects selected</span>
@@ -2484,7 +2725,21 @@
       <div class="section" id="sec-mold">
         <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h6v12H4zM14 8h6v12h-6z"/><path d="M9 4h6l-1.5 4h-3z"/></svg>Mold / Cast</div>
         <div class="hint" style="text-align:left; margin-top:0; margin-bottom:8px;">Select one solid, then generate. You get a two-part block mold: the object's shape hollowed out inside, a pour funnel and an air vent that both run down the seam, and tapered pegs so the halves line up. Print both halves, clamp them together, and pour. Because the funnel meets the cavity at the parting line, the sprue stub breaks away with the seam instead of leaving a mark on a face.</div>
+        <div class="param-label" style="margin-top:0;">Type</div>
+        <div class="toggle-group" id="mold-kind" style="margin-bottom:9px;">
+          <button class="toggle-btn active" data-kind="block">Block mould</button>
+          <button class="toggle-btn" data-kind="cast">Casting box</button>
+        </div>
+        <div class="hint" id="mold-kind-note" style="text-align:left; margin-top:0; margin-bottom:9px;"></div>
         <button class="mini-btn primary" id="bld-mold-go" style="width:100%; margin-bottom:9px;">Generate mold</button>
+        <div id="cast-opts" style="display:none;">
+          <div class="param-label">Silicone thickness <span class="val" id="cast-gap-val">12 mm</span></div>
+          <input type="range" id="cast-gap" min="4" max="40" step="1" value="12">
+          <div class="param-label">Box wall <span class="val" id="cast-wall-val">3 mm</span></div>
+          <input type="range" id="cast-wall" min="1.5" max="10" step="0.5" value="3">
+          <div class="param-label">Floor thickness <span class="val" id="cast-base-val">4 mm</span></div>
+          <input type="range" id="cast-base" min="1.5" max="15" step="0.5" value="4">
+        </div>
         <div class="param-label">Wall thickness <span class="val" id="mold-wall-val">8 mm</span></div>
         <input type="range" id="mold-wall" min="2" max="30" step="0.5" value="8">
         <div class="param-label">Pour hole radius <span class="val" id="mold-sprue-val">6 mm</span></div>
@@ -2569,7 +2824,7 @@
       </div>
 
       <div class="section" id="sec-export" data-tab="ie">
-        <div class="hint" style="text-align:left; margin:6px 0 8px;">Export runs from the <b>File</b> menu. These are the settings it uses.</div>
+        <div class="hint" style="text-align:left; margin:6px 0 8px;">Name the file, then pick a format. STL for printing, OBJ to keep colour, 3MF for full detail.</div>
         <div class="section-label"><svg class="lbl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 17V3"/><path d="m7 8 5-5 5 5"/></svg>Export</div>
         <button class="mini-btn" id="bld-repair-mesh" style="width:100%; margin-bottom:10px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px;"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Repair mesh
@@ -2823,6 +3078,32 @@
        PAINT STUDIO — a layered raster + vector drawing workspace. Hidden
        until the header's "Paint" mode is chosen.
        ══════════════════════════════════════════════════════════════════ -->
+  <div class="mask-backdrop" id="cs-backdrop"></div>
+  <div class="mask-dialog" id="cs-dialog" role="dialog" aria-label="Canvas size">
+    <div class="mask-head">
+      <b>Canvas size</b>
+      <button class="mask-close" id="cs-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="mask-body">
+      <div class="param-label" style="margin-top:0;">Width <span class="val" id="cs-w-val">1024 px</span></div>
+      <input type="range" id="cs-w" min="64" max="4096" step="16" value="1024">
+      <div class="param-label">Height <span class="val" id="cs-h-val">1024 px</span></div>
+      <input type="range" id="cs-h" min="64" max="4096" step="16" value="1024">
+      <div class="btn-grid" style="grid-template-columns:repeat(3,1fr); gap:5px; margin-top:8px;">
+        <button class="mini-btn" data-cspreset="1024,1024">Square</button>
+        <button class="mini-btn" data-cspreset="1920,1080">16:9</button>
+        <button class="mini-btn" data-cspreset="2480,3508">A4 300dpi</button>
+      </div>
+      <div class="hint" style="text-align:left; margin-top:10px; margin-bottom:12px;">Resizing keeps your artwork anchored top-left. Making the canvas smaller crops it.</div>
+      <div class="btn-grid" style="grid-template-columns:1fr 1fr;">
+        <button class="mini-btn" id="cs-cancel">Cancel</button>
+        <button class="mini-btn primary" id="cs-go">Resize</button>
+      </div>
+    </div>
+  </div>
+
   <div class="mask-backdrop" id="exp-backdrop"></div>
   <div class="mask-dialog" id="exp-dialog" role="dialog" aria-label="Export">
     <div class="mask-head">
@@ -2842,6 +3123,7 @@
         <option value="png">PNG — lossless, keeps transparency</option>
         <option value="jpg">JPG — smaller, no transparency</option>
         <option value="webp">WebP — small, keeps transparency</option>
+        <option value="psd">PSD — keeps layers, opens in Photoshop</option>
       </select>
       <div id="exp-quality-row" style="display:none;">
         <div class="param-label">Quality <span class="val" id="exp-quality-val">92</span></div>
@@ -2858,6 +3140,81 @@
         <button class="mini-btn primary" id="exp-go">Export</button>
       </div>
     </div>
+  </div>
+
+  <div class="mask-backdrop" id="pn-backdrop"></div>
+  <div class="mask-dialog" id="pn-dialog" role="dialog" aria-label="Panels">
+    <div class="mask-head">
+      <b id="pn-title">Panels</b>
+      <button class="mask-close" id="pn-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="mask-body">
+      <div class="hint" style="text-align:left; margin-top:0; margin-bottom:10px;">These commands live in the menus. Tick any you'd rather have as buttons in the sidebar too — handy on a touch screen.</div>
+      <div class="pn-list" id="pn-list"></div>
+      <div class="btn-grid" style="grid-template-columns:1fr 1fr; margin-top:12px;">
+        <button class="mini-btn" id="pn-none">Hide all</button>
+        <button class="mini-btn" id="pn-all">Show all</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mask-backdrop" id="me-backdrop"></div>
+  <div class="bd-dialog" id="me-dialog" role="dialog" aria-label="Export model">
+    <div class="bd-head">
+      <b>Export model</b>
+      <button class="mask-close" id="me-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="fd-body" id="me-body">
+      <div class="param-label" style="margin-top:0;">File name</div>
+      <div class="exp-name-row">
+        <input type="text" id="me-name" spellcheck="false" placeholder="model">
+        <span class="exp-ext" id="me-ext">.stl</span>
+      </div>
+      <div class="param-label">Format</div>
+      <select id="me-format" class="hud-select" style="width:100%;">
+        <option value="stl">STL — the standard for 3D printing</option>
+        <option value="obj">OBJ — keeps colour, opens in paint apps</option>
+        <option value="3mf">3MF — full detail, colour and units</option>
+      </select>
+      <label class="hud-check" style="margin:9px 0 4px;" id="me-uv-row"><input type="checkbox" id="me-keepuv"> Keep original UVs (OBJ)</label>
+      <div class="hint" id="me-note" style="text-align:left; margin-top:0; margin-bottom:12px;"></div>
+
+      <div class="section-label" style="margin-top:4px;">Before you print</div>
+      <div class="btn-grid" style="grid-template-columns:1fr 1fr; margin-bottom:9px;">
+        <button class="mini-btn" id="me-check">Check model</button>
+        <button class="mini-btn" id="me-repair">Repair mesh</button>
+      </div>
+      <div class="hint" style="text-align:left; margin-top:0; margin-bottom:9px;">Check looks for holes, thin walls, overhangs and bed fit. Repair welds seams and patches small holes left by booleans.</div>
+      <div id="me-results"></div>
+
+      <details id="me-settings" style="margin-top:10px;">
+        <summary style="cursor:pointer; font-size:11px; color:var(--text-muted); padding:6px 0;">Printer settings</summary>
+        <div id="me-settings-body"></div>
+      </details>
+    </div>
+    <div class="bd-foot">
+      <button class="mini-btn" id="me-cancel">Cancel</button>
+      <button class="mini-btn primary" id="me-go">Export</button>
+    </div>
+  </div>
+
+  <div class="mask-backdrop" id="fd-backdrop"></div>
+  <div class="bd-dialog" id="fd-dialog" role="dialog" aria-label="Files">
+    <div class="bd-head">
+      <b>Files</b>
+      <button class="mask-close" id="fd-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="fd-tabs" id="fd-tabs">
+      <button data-fd="import" class="active">Import</button>
+      <button data-fd="versions">Saved versions</button>
+    </div>
+    <div class="fd-body" id="fd-body"></div>
   </div>
 
   <div class="mask-backdrop" id="bd-backdrop"></div>
@@ -3060,7 +3417,7 @@
         <button data-ptab="colour">Colour</button>
         <button data-ptab="tool">Tool</button>
         <button data-ptab="image">Image</button>
-        <button data-ptab="files">Files</button>
+        <button data-ptab="files" class="panels-only">Files</button>
       </div>
       <div class="panel-head" id="paint-panel-title">Layers</div>
 
@@ -3291,6 +3648,13 @@
 
       <!-- IMAGE -->
       <div class="section" id="psec-image" style="display:none;">
+        <div class="section-label" style="margin-top:14px;">Curves</div>
+        <div class="hint" style="text-align:left; margin-bottom:6px;">Drag the line to bend the tone response. Bottom-left is shadows, top-right is highlights.</div>
+        <canvas id="pi-curve" width="212" height="150" style="width:100%; background:var(--s-900); border:1px solid var(--line); border-radius:var(--r-sm); touch-action:none; cursor:crosshair;"></canvas>
+        <div class="btn-grid" style="margin-top:6px;">
+          <button class="mini-btn" id="pi-curve-reset">Reset curve</button>
+          <button class="mini-btn primary" id="pi-apply-curve">Apply curve</button>
+        </div>
         <div class="section-label">Canvas</div>
         <div class="param-label">Width <span class="val" id="pi-w-val">1024 px</span></div>
         <input type="range" id="pi-w" min="64" max="4096" step="16" value="1024">
@@ -3319,13 +3683,6 @@
         <input type="range" id="pi-lvl-white" min="1" max="255" step="1" value="255">
         <button class="mini-btn primary" id="pi-apply-levels" style="width:100%; margin-top:6px;">Apply levels</button>
 
-        <div class="section-label" style="margin-top:14px;">Curves</div>
-        <div class="hint" style="text-align:left; margin-bottom:6px;">Drag the line to bend the tone response. Bottom-left is shadows, top-right is highlights.</div>
-        <canvas id="pi-curve" width="212" height="150" style="width:100%; background:var(--s-900); border:1px solid var(--line); border-radius:var(--r-sm); touch-action:none; cursor:crosshair;"></canvas>
-        <div class="btn-grid" style="margin-top:6px;">
-          <button class="mini-btn" id="pi-curve-reset">Reset curve</button>
-          <button class="mini-btn primary" id="pi-apply-curve">Apply curve</button>
-        </div>
 
         <div class="section-label" style="margin-top:14px;">Filters</div>
         <div class="btn-grid" style="grid-template-columns:repeat(2,1fr);">
@@ -6366,6 +6723,135 @@
       // That is why results looked random — sprue 5 worked, 6 failed, 8 worked again.
       // Nudging the dimensions by a fraction of a millimetre breaks the coincidence
       // without meaningfully changing the mold, so a retry almost always succeeds.
+      // ── Containment box (silicone / plaster mould maker) ────────────────────
+      // Different job from buildMold(). That one hollows a block so you can pour
+      // the FINAL part straight into printed plastic. This makes the box you cast
+      // a SILICONE OR PLASTER mould in:
+      //
+      //   1. print this box with the pattern already inside it
+      //   2. pour silicone or plaster around the pattern and let it cure
+      //   3. split the box, take the rubber mould out, pull the pattern free
+      //   4. cast the real part in that rubber mould, over and over
+      //
+      // So the box is a CONTAINER with the object standing inside it as a solid
+      // positive — the opposite of a cavity. The two halves separate so the cured
+      // block can be removed without tearing it.
+      function buildCastBox(mesh, opts) {
+        const CSG = window.CSGEngine;
+        const o = Object.assign({
+          gap: 12,         // silicone thickness around the pattern
+          wall: 3,         // printed wall thickness of the box itself
+          base: 4,         // solid floor under the pattern
+          pegR: 3,
+          pegClear: 0.15,
+          pegLenMul: 2.4,
+          split: 'z',
+          draft: 0         // outward taper on the box walls (degrees), eases release
+        }, opts || {});
+        if (o.split === 'y') {
+          throw new Error('a top/bottom split would trap the cured rubber — use front/back or left/right.');
+        }
+
+        mesh.updateMatrixWorld(true);
+        const bb = new THREE.Box3().setFromObject(mesh);
+        const size = bb.getSize(new THREE.Vector3());
+        const ctr = bb.getCenter(new THREE.Vector3());
+
+        // Inner cavity: the pattern plus a silicone gap all round, open at the top
+        // so you can pour. The box grows by its own wall thickness outside that.
+        const iw = size.x + o.gap * 2;
+        const id = size.z + o.gap * 2;
+        const ih = size.y + o.gap;              // gap above, none below — it sits on the floor
+        const ow = iw + o.wall * 2;
+        const od = id + o.wall * 2;
+        const oh = ih + o.base;
+
+        const baseY = bb.min.y - o.base;
+        const cy = baseY + oh / 2;
+
+        // Outer shell.
+        const outer = new THREE.Mesh(new THREE.BoxGeometry(ow, oh, od), new THREE.MeshStandardMaterial());
+        outer.position.set(ctr.x, cy, ctr.z);
+        outer.updateMatrixWorld(true);
+
+        // Hollow it: a box the size of the cavity, raised so it leaves a floor and
+        // breaks through the top face (that's the pour opening).
+        const innerH = ih + 50;                 // overshoot upward to open the top
+        const inner = new THREE.Mesh(new THREE.BoxGeometry(iw, innerH, id), new THREE.MeshStandardMaterial());
+        inner.position.set(ctr.x, baseY + o.base + innerH / 2, ctr.z);
+        inner.updateMatrixWorld(true);
+
+        let box = CSG.fromMesh(outer).subtract(CSG.fromMesh(inner));
+
+        // Add the pattern itself, standing on the floor — printed as one piece with
+        // the box, which is what makes this a single print rather than an assembly.
+        const pat = mesh.clone(true);
+        pat.updateMatrixWorld(true);
+        box = box.union(CSG.fromMesh(pat));
+
+        // Registration pegs so the halves line up. Same approach as the block mould:
+        // added one at a time, because unioning several disjoint solids at once
+        // collapses this BSP engine.
+        const pegLen = o.pegR * o.pegLenMul;
+        const along = (o.split === 'z') ? 'x' : 'z';
+        const halfSpan = (along === 'x' ? ow : od) / 2;
+        const seat = (o.split === 'z') ? ctr.z : ctr.x;
+        const spots = [];
+        [-0.62, 0.62].forEach(u => {
+          [-0.34, 0.34].forEach(v => {
+            const p = new THREE.Vector3();
+            p.y = baseY + oh * (0.5 + v * 0.5);
+            if (along === 'x') { p.x = ctr.x + halfSpan * u; p.z = seat; }
+            else { p.z = ctr.z + halfSpan * u; p.x = seat; }
+            spots.push(p);
+          });
+        });
+        const safe = box;
+        let added = 0;
+        spots.forEach(p => {
+          try {
+            const peg = new THREE.Mesh(
+              new THREE.CylinderGeometry(o.pegR * 0.45, o.pegR, pegLen, 18),
+              new THREE.MeshStandardMaterial());
+            peg.rotation.set(o.split === 'z' ? Math.PI / 2 : 0, 0, o.split === 'z' ? 0 : Math.PI / 2);
+            peg.position.copy(p);
+            peg.updateMatrixWorld(true);
+            const socket = new THREE.Mesh(
+              new THREE.CylinderGeometry(o.pegR * 0.45 + o.pegClear, o.pegR + o.pegClear, pegLen + o.pegClear * 2, 18),
+              new THREE.MeshStandardMaterial());
+            socket.rotation.copy(peg.rotation);
+            socket.position.copy(p);
+            socket.updateMatrixWorld(true);
+            const withPeg = box.union(CSG.fromMesh(peg));
+            const test = CSG.toGeometry(withPeg);
+            if (test.attributes.position.count / 3 > 24) { box = withPeg; added++; }
+          } catch (e) { /* skip this peg, keep the box */ }
+        });
+        if (!added) box = safe;
+
+        // Split into two halves along the chosen axis.
+        const big = Math.max(ow, oh, od) * 3;
+        const cutA = new THREE.Mesh(new THREE.BoxGeometry(big, big, big), new THREE.MeshStandardMaterial());
+        const cutB = new THREE.Mesh(new THREE.BoxGeometry(big, big, big), new THREE.MeshStandardMaterial());
+        if (o.split === 'z') {
+          cutA.position.set(ctr.x, cy, ctr.z - big / 2);
+          cutB.position.set(ctr.x, cy, ctr.z + big / 2);
+        } else {
+          cutA.position.set(ctr.x - big / 2, cy, ctr.z);
+          cutB.position.set(ctr.x + big / 2, cy, ctr.z);
+        }
+        cutA.updateMatrixWorld(true); cutB.updateMatrixWorld(true);
+        const halfA = box.intersect(CSG.fromMesh(cutA));
+        const halfB = box.intersect(CSG.fromMesh(cutB));
+
+        // Sanity: both halves must actually contain geometry.
+        const ga = CSG.toGeometry(halfA), gb = CSG.toGeometry(halfB);
+        if (ga.attributes.position.count / 3 < 24 || gb.attributes.position.count / 3 < 24) {
+          throw new Error('the split produced an empty half — try the other split direction.');
+        }
+        return { csgA: halfA, csgB: halfB, pegs: added, inner: { iw, ih, id } };
+      }
+
       function buildMoldRobust(mesh, opts) {
         const jitters = [0, 0.37, -0.29, 0.63, -0.51, 0.91];
         let lastErr = null;
@@ -6693,14 +7179,28 @@
         };
         opts.sprueTop = opts.sprue * 1.7;
 
+        // Which of the two jobs is this? The casting box takes its own settings.
+        const kind = (window.currentMoldKind ? window.currentMoldKind() : 'block');
+        if (kind === 'cast') {
+          opts.gap  = parseFloat(el('cast-gap')  ? el('cast-gap').value  : 12) || 12;
+          opts.wall = parseFloat(el('cast-wall') ? el('cast-wall').value : 3) || 3;
+          opts.base = parseFloat(el('cast-base') ? el('cast-base').value : 4) || 4;
+        }
+
         let res;
-        try { res = buildMoldRobust(mesh, opts); }
-        catch (err) { console.error('Mold build failed:', err); return banner('⚠️ Couldn\'t build that mold: ' + (err.message || err)); }
+        try {
+          res = (kind === 'cast') ? buildCastBox(mesh, opts) : buildMoldRobust(mesh, opts);
+        }
+        catch (err) {
+          console.error('Mold build failed:', err);
+          return banner('⚠️ Couldn\'t build that ' + (kind === 'cast' ? 'casting box' : 'mold') + ': ' + (err.message || err));
+        }
 
         const baseName = (src.userData.name || 'Object');
+        const suffix = (kind === 'cast') ? ' cast box ' : ' mold ';
         const mkHalf = (csg, label) => {
           const m = csgToRecenteredMesh(csg, mesh.material);
-          m.userData.name = baseName + ' mold ' + label;
+          m.userData.name = baseName + suffix + label;
           m.userData.isMoldHalf = true;
           scene.add(m); objects.push(m);
           return m;
@@ -6712,9 +7212,9 @@
         // pieces, and so you can see the cavity without moving anything yourself.
         const bbA = new THREE.Box3().setFromObject(a);
         const sz = new THREE.Vector3(); bbA.getSize(sz);
-        const gap = Math.max(sz.x, sz.y, sz.z) * 0.32 + opts.wall;
-        if (res.axis === 'x') { a.position.x -= gap; b.position.x += gap; }
-        else if (res.axis === 'y') { a.position.y -= gap; b.position.y += gap; }
+        const gap = Math.max(sz.x, sz.y, sz.z) * 0.32 + (opts.wall || 4);
+        if ((res.axis || opts.split) === 'x') { a.position.x -= gap; b.position.x += gap; }
+        else if ((res.axis || opts.split) === 'y') { a.position.y -= gap; b.position.y += gap; }
         else { a.position.z -= gap; b.position.z += gap; }
 
         // Keep the original around but out of the way — it's the pattern, and you
@@ -6725,12 +7225,18 @@
         refreshSelectionVisual();
         attachGizmoToSelection();
         saveHistory(); updateStatus(); updateFloatingHUD();
+        // The casting box reports its own peg count on the result; the block mould
+        // uses the module-level counters. Without this the box always claimed it
+        // had no pegs even when it had four.
+        if (kind === 'cast') { moldPegsAdded = res.pegs || 0; moldPegsWanted = 4; moldPegSkipReason = ''; }
         const pegNote = moldPegsAdded === 0
           ? `no alignment pegs (${moldPegSkipReason || 'no room for them'})`
           : (moldPegsAdded === moldPegsWanted
               ? `${moldPegsAdded} alignment pegs`
               : `${moldPegsAdded} of ${moldPegsWanted} alignment pegs`);
-        banner(`Mold created — two halves, ${pegNote}, ${opts.vent ? 'a pour funnel and air vent' : 'a pour funnel'}. The original is hidden; unhide it from the Workspace list.`);
+        banner(kind === 'cast'
+          ? `Casting box created — two halves with the pattern inside, ${pegNote}. Print both, pour silicone or plaster around the pattern, let it cure, then split the box and pull the pattern out.`
+          : `Mold created — two halves, ${pegNote}, ${opts.vent ? 'a pour funnel and air vent' : 'a pour funnel'}. The original is hidden; unhide it from the Workspace list.`);
       }
 
       function performSlice() {
@@ -10286,6 +10792,178 @@
       // Called from the render loop right after renderer.render(), while the
       // drawing buffer still holds this frame. Tracks the snapshot by identity so
       // it stays correct even when the timeline shifts at its cap.
+      // ── Object browser ──────────────────────────────────────────────────────
+      // Renders each top-level object on its own so you can see what's in the
+      // scene. Thumbnails are drawn once into a shared offscreen renderer and
+      // cached against the object's geometry, so a scene of 30 parts doesn't cost
+      // 30 live renderers — that would be the obvious way to do this and it would
+      // bring a tablet to a halt.
+      let _obRenderer = null, _obScene = null, _obCam = null;
+      const _obCache = new Map();          // uuid -> { url, key }
+
+      function obEnsureRenderer() {
+        if (_obRenderer) return true;
+        try {
+          _obRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+          _obRenderer.setSize(128, 128);
+          _obScene = new THREE.Scene();
+          _obCam = new THREE.PerspectiveCamera(35, 1, 0.1, 5000);
+          const key = new THREE.DirectionalLight(0xffffff, 0.95);
+          key.position.set(3, -4, 6);
+          const fill = new THREE.DirectionalLight(0xffffff, 0.35);
+          fill.position.set(-4, 3, 2);
+          _obScene.add(key, fill, new THREE.AmbientLight(0xffffff, 0.55));
+          return true;
+        } catch (e) { _obRenderer = null; return false; }
+      }
+
+      // A cheap signature that changes whenever the look of an object changes, so
+      // cached thumbnails refresh when they should and not otherwise.
+      function obKey(o) {
+        let tris = 0, mat = '';
+        o.traverse(c => {
+          if (c.isMesh && c.geometry && c.geometry.attributes.position) {
+            tris += c.geometry.attributes.position.count;
+            if (!mat && c.material && c.material.color) mat = c.material.color.getHexString();
+          }
+        });
+        return tris + '|' + mat + '|' + (o.userData.name || o.name || '');
+      }
+
+      function obThumb(o) {
+        const cached = _obCache.get(o.uuid);
+        const key = obKey(o);
+        if (cached && cached.key === key) return cached.url;
+        if (!obEnsureRenderer()) return null;
+        // Clone so the live scene is never disturbed by the framing we do here.
+        let clone;
+        try { clone = o.clone(true); } catch (e) { return null; }
+        clone.position.set(0, 0, 0);
+        clone.rotation.set(0, 0, 0);
+        clone.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(clone);
+        if (box.isEmpty()) return null;
+        const c = box.getCenter(new THREE.Vector3());
+        const r = box.getSize(new THREE.Vector3()).length() * 0.5 || 1;
+        clone.position.sub(c);
+        _obScene.add(clone);
+        const d = r / Math.tan((35 * Math.PI / 180) / 2) * 1.25;
+        _obCam.position.set(d * 0.62, -d * 0.72, d * 0.55);
+        _obCam.up.set(0, 0, 1);
+        _obCam.lookAt(0, 0, 0);
+        _obCam.near = Math.max(0.01, d - r * 4); _obCam.far = d + r * 6;
+        _obCam.updateProjectionMatrix();
+        let url = null;
+        try {
+          _obRenderer.render(_obScene, _obCam);
+          url = _obRenderer.domElement.toDataURL('image/png');
+        } catch (e) { url = null; }
+        _obScene.remove(clone);
+        if (url) _obCache.set(o.uuid, { url, key });
+        return url;
+      }
+
+      // Most objects carry no name, so derive something readable from what they
+      // are. A tile labelled "Object" three times over is no more use than no
+      // label at all.
+      function obLabel(o, kids) {
+        if (o.userData && o.userData.name) return o.userData.name;
+        if (o.name) return o.name;
+        if (kids > 1) return 'Group (' + kids + ')';
+        let type = '';
+        o.traverse(c => { if (!type && c.isMesh && c.geometry) type = c.geometry.type || ''; });
+        const map = {
+          BoxGeometry: 'Cube', SphereGeometry: 'Sphere', CylinderGeometry: 'Cylinder',
+          ConeGeometry: 'Cone', TorusGeometry: 'Torus', TextGeometry: 'Text',
+          ExtrudeGeometry: 'Extrusion', LatheGeometry: 'Revolve', PlaneGeometry: 'Plane'
+        };
+        if (map[type]) return map[type];
+        // Anything booleaned or edited becomes a plain BufferGeometry, so fall
+        // back to its size, which at least distinguishes one part from another.
+        try {
+          const b = new THREE.Box3().setFromObject(o);
+          const s = b.getSize(new THREE.Vector3());
+          return Math.round(s.x) + '\u00d7' + Math.round(s.y) + '\u00d7' + Math.round(s.z) + ' mm';
+        } catch (e) { return 'Object'; }
+      }
+
+      function renderObjectBrowser() {
+        const grid = document.getElementById('ob-grid');
+        if (!grid) return;
+        const list = objects.filter(o => o && !o.userData.isSketch);
+        const cnt = document.getElementById('ob-count');
+        if (cnt) cnt.textContent = list.length ? String(list.length) : '';
+        grid.innerHTML = '';
+        if (!list.length) {
+          const e = document.createElement('div');
+          e.className = 'ob-empty';
+          e.textContent = 'Nothing in the scene yet.';
+          grid.appendChild(e);
+          return;
+        }
+        list.forEach(o => {
+          // A div rather than a button: the rename field sits inside the tile, and
+          // pressing space inside an input nested in a <button> activates the
+          // button and steals focus — which committed the name early, turning
+          // "Heel wedge" into "Heel".
+          const t = document.createElement('div');
+          t.setAttribute('role', 'button');
+          t.tabIndex = 0;
+          t.className = 'ob-tile' + (selected.includes(o) ? ' sel' : '') + (o.visible === false ? ' ob-hidden' : '');
+          const url = obThumb(o);
+          if (url) {
+            const img = document.createElement('img');
+            img.src = url; img.alt = '';
+            img.style.cssText = 'width:100%; height:100%; display:block; object-fit:cover;';
+            t.appendChild(img);
+          }
+          // Groups select as one thing, so they read as one tile — the badge says
+          // how many parts are inside.
+          let kids = 0;
+          if (o.type === 'Group' || (o.children && o.children.some(c => c.isMesh))) {
+            o.traverse(c => { if (c.isMesh) kids++; });
+          }
+          if (kids > 1) {
+            const b = document.createElement('span');
+            b.className = 'ob-badge'; b.textContent = kids;
+            t.appendChild(b);
+          }
+          const nm = document.createElement('span');
+          nm.className = 'ob-name';
+          nm.textContent = obLabel(o, kids);
+          t.appendChild(nm);
+          t.title = nm.textContent + ' — click the name to rename';
+          // Click the name to rename, the way Finder and Explorer do. The first
+          // click on a tile selects it; clicking the name after that renames,
+          // so selecting never accidentally starts an edit.
+          nm.onclick = (ev) => {
+            if (!selected.includes(o)) return;      // let the tile handle selection
+            ev.stopPropagation();
+            msInlineRename(nm, o.userData.name || o.name || '', (v) => {
+              o.userData.name = v;
+              renderObjectBrowser(); updateStatus(); saveHistory();
+            }, () => renderObjectBrowser());
+          };
+          t.onclick = (e) => {
+            if (e.shiftKey || multiSelectMode) {
+              const i = selected.indexOf(o);
+              if (i >= 0) selected.splice(i, 1); else selected.push(o);
+            } else selected = [o];
+            refreshSelectionVisual(); attachGizmoToSelection();
+            updateStatus(); updateFloatingHUD(); renderObjectBrowser();
+            if (window.invalidate3D) invalidate3D();
+          };
+          t.ondblclick = () => {
+            selected = [o];
+            refreshSelectionVisual(); attachGizmoToSelection();
+            const b = document.getElementById('bld-frame-sel'); if (b) b.click();
+            renderObjectBrowser();
+          };
+          grid.appendChild(t);
+        });
+      }
+      window.renderObjectBrowser = renderObjectBrowser;
+
       function serviceThumbQueue() {
         if (!_thumbWanted) return;
         const snap = _thumbWanted; _thumbWanted = null;
@@ -11141,16 +11819,25 @@
         edit:   ['sec-mirror', 'sec-combine', 'sec-booleans', 'sec-shell', 'sec-array', 'sec-align', 'sec-workspace'],
         ie:     ['sec-saves', 'sec-printcheck', 'sec-import', 'sec-export', 'sec-session']
       };
+      // Select is the resting tab again now that it holds the object browser.
       let activePanelTab = 'select';
       const ALL_PANELS = ['sec-select-mini','sec-primitives','sec-text3d','sec-img3d','sec-booleans','sec-fillet','sec-paint','sec-sculpt','sketch-panel','layer-panel','sec-extrude','sec-slice','sec-import','sec-export','sec-printcheck','sec-saves','sec-session','sec-workspace','sec-mirror','sec-combine','sec-measure','sec-thread','sec-shell','sec-chamfer','sec-array','sec-align','sec-smooth','sec-revolve','sec-loft','sec-mold'];
 
       function setActivePanelTab(tab) {
         activePanelTab = tab;
-        // Switching to a main tab drops the tool tab (a tool is no longer "open").
-        const toolTab = document.getElementById('tool-tab');
-        if (toolTab) toolTab.style.display = 'none';
         document.querySelectorAll('#side-tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-        setActiveTool('select');
+        // Looking at another panel should NOT cancel the tool you're using. This
+        // used to call setActiveTool('select'), so glancing at Edit mid-sketch
+        // dropped you out of the sketch tool and its tab vanished from the bar —
+        // which read as tabs disappearing at random. The tool stays active and
+        // keeps its tab; only picking a different tool changes it.
+        const visible = TAB_PANELS[tab] || [];
+        ALL_PANELS.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.style.display = visible.includes(id) ? '' : 'none';
+        });
+        const title = document.getElementById('panel-title');
+        if (title) title.textContent = { select:'Select', create:'Create', edit:'Edit', ie:'Files' }[tab] || 'Panel';
       }
 
       // Nice display names for the dynamic tool tab.
@@ -11168,6 +11855,8 @@
         const toolTab = document.getElementById('tool-tab');
         if (toolTab) {
           if (tool === 'select') {
+            // Keep the label showing the last real tool used — the tab is hidden
+            // now, but when it reappears it should not flash a generic "Tool".
             toolTab.style.display = 'none';
             document.querySelectorAll('#side-tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === activePanelTab));
           } else {
@@ -11400,6 +12089,10 @@
 
           g = makeGeometryCSGReady(g);
           let m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({color:0xb0b8c8, roughness:0.3})); m.position.z=12; m.castShadow=true; m.receiveShadow=true;
+          // Record what this started as. makeGeometryCSGReady() returns a plain
+          // BufferGeometry, so the original type is gone by the time anything
+          // wants to label it — the object browser included.
+          m.userData.name = { box:'Cube', cylinder:'Cylinder', sphere:'Sphere', cone:'Cone', wedge:'Wedge' }[t] || 'Object';
           scene.add(m); objects.push(m); saveHistory(); updateStatus();
         });
 
@@ -11797,6 +12490,49 @@
         };
         svRefresh();
 
+        // ── Mould type switch ─────────────────────────────────────────────────
+        // Two different jobs share this panel: the block mould you pour the final
+        // part into, and the casting box you cast a silicone/plaster mould in.
+        // The controls that only apply to one are shown for that one.
+        let moldKind = 'block';
+        const MOLD_NOTES = {
+          block: 'Hollows a block to your object\u2019s shape, with a pour funnel and air vent on the seam. Print it, clamp it, pour the final part straight in.',
+          cast: 'Builds an open box with the object standing inside it as a solid pattern, printed as one piece. Pour silicone or plaster around it, let it cure, split the box and pull the pattern out \u2014 you\u2019re left with a reusable rubber mould.'
+        };
+        function syncMoldKind() {
+          const note = document.getElementById('mold-kind-note');
+          if (note) note.textContent = MOLD_NOTES[moldKind];
+          const castOnly = document.getElementById('cast-opts');
+          if (castOnly) castOnly.style.display = (moldKind === 'cast') ? '' : 'none';
+          // The block mould's funnel/vent settings mean nothing for a casting box.
+          ['mold-sprue', 'mold-vent', 'mold-wall'].forEach(id => {
+            const el = document.getElementById(id);
+            const row = el && el.previousElementSibling;
+            if (el) el.style.display = (moldKind === 'cast') ? 'none' : '';
+            if (row && row.classList.contains('param-label')) row.style.display = (moldKind === 'cast') ? 'none' : '';
+          });
+          const ventRow = document.getElementById('mold-vent');
+          if (ventRow && ventRow.closest('label')) ventRow.closest('label').style.display = (moldKind === 'cast') ? 'none' : '';
+          const go = document.getElementById('bld-mold-go');
+          if (go) go.textContent = (moldKind === 'cast') ? 'Generate casting box' : 'Generate mold';
+        }
+        document.querySelectorAll('#mold-kind .toggle-btn').forEach(b => {
+          b.onclick = () => {
+            moldKind = b.dataset.kind;
+            document.querySelectorAll('#mold-kind .toggle-btn').forEach(x => x.classList.toggle('active', x === b));
+            syncMoldKind();
+          };
+        });
+        [['cast-gap','cast-gap-val',' mm'], ['cast-wall','cast-wall-val',' mm'], ['cast-base','cast-base-val',' mm']]
+          .forEach(([id, vid, suf]) => {
+            const el = document.getElementById(id), out = document.getElementById(vid);
+            if (!el || !out) return;
+            const upd = () => { out.textContent = el.value + suf; };
+            el.oninput = upd; upd();
+          });
+        syncMoldKind();
+        window.currentMoldKind = () => moldKind;
+
         // Print check
         const pcRun = document.getElementById('pc-run');
         if (pcRun) pcRun.onclick = () => {
@@ -12073,6 +12809,8 @@
           wsEl.style.display = (toolShowsIt && n > 0) ? '' : 'none';
         }
         updateLayersUI();
+        // Keep the object browser in step with the scene.
+        if (window.renderObjectBrowser) renderObjectBrowser();
       }
       function banner(msg) {
         const el=document.getElementById('bld-banner');
@@ -12862,7 +13600,7 @@
           x.classList.toggle('active', x.dataset.ptab === t));
         const btn = document.querySelector('#paint-tabs button[data-ptab="' + t + '"]');
         if (btn && $('paint-panel-title')) $('paint-panel-title').textContent = btn.textContent;
-        ['layers','colour','tool','image','files'].forEach(k => {
+        ['layers','colour','tool','image','files'].forEach(k => {   // 'files' still hidden//shown so its controls keep working
           const el = $('psec-' + k); if (el) el.style.display = (k === t) ? '' : 'none';
         });
         // The History and Swatches docks belong with Layers, so they follow it
@@ -16253,6 +16991,14 @@
           ev.stopPropagation();
           inlineRename(nm, l.name, (v) => { l.name = v; renderLayerList(); saveSoon(); });
         };
+        // Clicking the name of the layer you're already on renames it — the same
+        // convention as the object browser, and easier on a touch screen than
+        // finding a double-tap.
+        nm.onclick = (ev) => {
+          if (l.id !== activeId) return;           // first click just selects
+          ev.stopPropagation();
+          inlineRename(nm, l.name, (v) => { l.name = v; renderLayerList(); saveSoon(); });
+        };
         const sub = document.createElement('div');
         sub.className = 'layer-sub';
         const bits = [l.kind === 'vector' ? 'VEC' : 'PIX'];
@@ -16908,6 +17654,8 @@
             { label: 'Undo',        fn: () => undo(),  key: 'Ctrl Z' },
             { label: 'Redo',        fn: () => redo(),  key: 'Ctrl ⇧ Z' },
             { sep: true },
+            { label: 'Canvas size…', fn: () => window.openCanvasSize && openCanvasSize() },
+            { sep: true },
             { label: 'Select all',  fn: () => { const m = new Uint8Array(W*H).fill(1); selFromMask(m); composite(); banner('Selected the whole canvas.'); }, key: 'Ctrl A' },
             { label: 'Deselect',    fn: () => { clearSelection(); composite(); banner('Deselected.'); }, key: 'Ctrl D' },
             { sep: true },
@@ -16951,14 +17699,15 @@
             { label: 'Ripple',      fn: () => $('pi-ripple') && $('pi-ripple').click() }
           ]},
           { name: 'View', items: [
+            { label: 'Panels…', fn: () => window.openPanelManager && openPanelManager() },
+            { sep: true },
             { label: 'Zoom in',   fn: () => $('ps-zoom-in') && $('ps-zoom-in').click() },
             { label: 'Zoom out',  fn: () => $('ps-zoom-out') && $('ps-zoom-out').click() },
             { label: 'Fit to screen', fn: () => $('ps-zoom-fit') && $('ps-zoom-fit').click() },
             { sep: true },
             { label: 'Layers panel',   fn: () => showPaintTab('layers') },
             { label: 'Tool options',   fn: () => showPaintTab('tool') },
-            { label: 'Image panel',    fn: () => showPaintTab('image') },
-            { label: 'Files panel',    fn: () => showPaintTab('files') }
+            { label: 'Image panel',    fn: () => showPaintTab('image') }
           ]}
         ];
         function buildMenus() {
@@ -16982,7 +17731,8 @@
               if (it.menulabel) { const l = document.createElement('div'); l.className = 'menu-label'; l.textContent = it.menulabel; drop.appendChild(l); return; }
               const b = document.createElement('button');
               b.className = 'menu-item';
-              b.innerHTML = '<span>' + it.label + '</span>' + (it.key ? '<span class="mi-key">' + it.key + '</span>' : '');
+              b.innerHTML = '<span' + (it.cls ? ' class="' + it.cls + '"' : '') + '>' + it.label + '</span>' +
+                          (it.key ? '<span class="mi-key">' + it.key + '</span>' : '');
               b.onclick = () => { closeAll(); try { it.fn(); } catch (e) { console.error(e); } };
               drop.appendChild(b);
             });
@@ -17838,6 +18588,106 @@
           g.drawImage(cv, 0, 0);
           return out;
         }
+      // ── PSD export ──────────────────────────────────────────────────────────
+      // PNG/JPG flatten everything, so a multi-layer document loses its structure
+      // the moment it leaves the app. This writes a real .psd with each layer kept
+      // separate, so work can continue in Photoshop, Affinity, GIMP or Krita.
+      //
+      // Format notes: PSD is big-endian throughout. Channel data is written
+      // uncompressed (compression 0) — larger files than RLE, but simple and hard
+      // to get subtly wrong. Layers are stored bottom-up, matching our own order.
+      //
+      // The buffer is sized EXACTLY up front. An earlier version grew by doubling
+      // and blew up on allocation: a 1024x1024 document is 1MB per channel, and
+      // four channels per layer adds up fast enough that repeated doubling asks
+      // for far more memory than the file actually needs.
+      function psdExport(name) {
+        const src = layers.filter(l => l.kind !== 'group' && l.canvas);
+        if (!src.length) throw new Error('there are no layers to export');
+        const n = W * H;
+
+        // Pull every layer's channels first — needed for sizing and for writing.
+        const planes = src.map(l => {
+          const d = l.ctx.getImageData(0, 0, W, H).data;
+          const a = new Uint8Array(n), r = new Uint8Array(n), g = new Uint8Array(n), b = new Uint8Array(n);
+          for (let i = 0; i < n; i++) {
+            r[i] = d[i*4]; g[i] = d[i*4+1]; b[i] = d[i*4+2]; a[i] = d[i*4+3];
+          }
+          return { r, g, b, a, layer: l };
+        });
+
+        const names = planes.map(p => (p.layer.name || 'Layer').slice(0, 255));
+        // Per layer: 16 bounds + 2 channel count + 4*6 channel info + 12 blend
+        //            + 4 extra-length + 8 (mask+ranges) + padded name
+        const nameLen = (s) => { let L = 1 + s.length; while (L % 4) L++; return L; };
+        let recLen = 2;
+        planes.forEach((p, k) => { recLen += 16 + 2 + 24 + 12 + 4 + 8 + nameLen(names[k]); });
+        const chanLen = planes.length * 4 * (2 + n);
+        const layerInfoLen = recLen + chanLen;
+        const pad = (layerInfoLen % 2) ? 1 : 0;
+        const total = 26 + 4 + 4                    // header + colour mode + resources
+                    + 4 + 4 + layerInfoLen + pad + 4 // layer & mask section
+                    + 2 + 3 * n;                     // composite
+        const buf = new Uint8Array(total);
+        let len = 0;
+        const u8  = (v) => { buf[len++] = v & 0xff; };
+        const u16 = (v) => { u8(v >> 8); u8(v); };
+        const u32 = (v) => { u8(v >>> 24); u8(v >>> 16); u8(v >>> 8); u8(v); };
+        const str = (s) => { for (let i = 0; i < s.length; i++) u8(s.charCodeAt(i)); };
+        const blob = (arr) => { buf.set(arr, len); len += arr.length; };
+
+        // ── Header ──
+        str('8BPS'); u16(1); for (let i = 0; i < 6; i++) u8(0);
+        u16(3); u32(H); u32(W); u16(8); u16(3);
+        u32(0);                     // colour mode data
+        u32(0);                     // image resources
+
+        // ── Layer & mask information ──
+        u32(4 + layerInfoLen + pad + 4);
+        u32(layerInfoLen + pad);
+        u16(planes.length);
+        planes.forEach((p, k) => {
+          u32(0); u32(0); u32(H); u32(W);         // bounds: the full canvas
+          u16(4);                                  // channels: A,R,G,B
+          [0xffff, 0, 1, 2].forEach(id => { u16(id); u32(2 + n); });
+          str('8BIM');
+          str(psdBlendKey(p.layer.blend));
+          u8(Math.round((p.layer.opacity != null ? p.layer.opacity : 1) * 255));
+          u8(0);                                   // clipping
+          u8(p.layer.visible === false ? 2 : 0);   // flags: bit 1 = hidden
+          u8(0);                                   // filler
+          const nm = names[k];
+          u32(8 + nameLen(nm));                    // extra data length
+          u32(0);                                  // layer mask data
+          u32(0);                                  // blending ranges
+          const at = len;
+          u8(nm.length); str(nm);
+          while ((len - at) % 4) u8(0);
+        });
+        // Channel data, in the order the records declared it.
+        planes.forEach(p => {
+          [p.a, p.r, p.g, p.b].forEach(ch => { u16(0); blob(ch); });
+        });
+        if (pad) u8(0);
+        u32(0);                                    // global layer mask info
+
+        // ── Composite (what apps show before parsing layers) ──
+        const flat = flatten();
+        const fd = flat.getContext('2d').getImageData(0, 0, W, H).data;
+        u16(0);
+        for (let c = 0; c < 3; c++) for (let i = 0; i < n; i++) u8(fd[i*4 + c]);
+        return buf.subarray(0, len);
+      }
+
+      // Map our CSS blend names onto PSD's four-character keys.
+      function psdBlendKey(b) {
+        const m = { 'source-over':'norm', 'normal':'norm', 'multiply':'mul ', 'screen':'scrn',
+          'overlay':'over', 'darken':'dark', 'lighten':'lite', 'color-dodge':'div ',
+          'color-burn':'idiv', 'hard-light':'hLit', 'soft-light':'sLit', 'difference':'diff',
+          'exclusion':'smud', 'hue':'hue ', 'saturation':'sat ', 'color':'colr', 'luminosity':'lum ' };
+        return m[b] || 'norm';
+      }
+
         function doExport(cv, fallback) {
           const { ext, mime, q } = exportFormat();
           const src = flattenFor(cv, mime);
@@ -17852,6 +18702,45 @@
           if (row) row.style.display = e.target.value === 'png' ? 'none' : '';   // quality applies to jpg/webp
         };
         if ($('pf-quality')) $('pf-quality').oninput = e => $('pf-quality-val').textContent = e.target.value;
+        // ── Canvas size dialog ────────────────────────────────────────────────
+        // Width/height lived at the top of the Image tab, above a long column of
+        // adjustments — so changing canvas size meant scrolling past filters you
+        // weren't using. It's a document-level setting, so it belongs with Edit.
+        // Drives the existing resize control, so one implementation.
+        function openCanvasSize() {
+          const w = $('pi-w'), h = $('pi-h');
+          if (w && $('cs-w')) { $('cs-w').value = w.value; $('cs-w-val').textContent = w.value + ' px'; }
+          if (h && $('cs-h')) { $('cs-h').value = h.value; $('cs-h-val').textContent = h.value + ' px'; }
+          $('cs-backdrop').classList.add('open');
+          $('cs-dialog').classList.add('open');
+        }
+        function closeCanvasSize() {
+          $('cs-backdrop').classList.remove('open');
+          $('cs-dialog').classList.remove('open');
+        }
+        window.openCanvasSize = openCanvasSize;
+        ['cs-w','cs-h'].forEach(id => {
+          const el = $(id); if (!el) return;
+          el.oninput = () => { $(id + '-val').textContent = el.value + ' px'; };
+        });
+        document.querySelectorAll('[data-cspreset]').forEach(b => {
+          b.onclick = () => {
+            const [pw, ph] = b.dataset.cspreset.split(',');
+            $('cs-w').value = pw; $('cs-w-val').textContent = pw + ' px';
+            $('cs-h').value = ph; $('cs-h-val').textContent = ph + ' px';
+          };
+        });
+        if ($('cs-close'))  $('cs-close').onclick = closeCanvasSize;
+        if ($('cs-cancel')) $('cs-cancel').onclick = closeCanvasSize;
+        if ($('cs-backdrop')) $('cs-backdrop').onclick = closeCanvasSize;
+        if ($('cs-go')) $('cs-go').onclick = () => {
+          const w = $('pi-w'), h = $('pi-h');
+          if (w) { w.value = $('cs-w').value; if (w.oninput) w.oninput({ target: w }); }
+          if (h) { h.value = $('cs-h').value; if (h.oninput) h.oninput({ target: h }); }
+          closeCanvasSize();
+          const r = $('pi-resize'); if (r) r.click();
+        };
+
         // ── Export dialog ─────────────────────────────────────────────────────
         // Name and format used to live in the Files panel while the export button
         // was in the File menu, so you had to visit two places to change one
@@ -17864,7 +18753,12 @@
           const ext = f ? f.value : 'png';
           const e = $('exp-ext'); if (e) e.textContent = '.' + ext;
           const row = $('exp-quality-row');
-          if (row) row.style.display = (ext === 'png') ? 'none' : '';
+          // Quality is a lossy-format idea; PNG and PSD are both lossless.
+          if (row) row.style.display = (ext === 'png' || ext === 'psd') ? 'none' : '';
+          // A PSD is the whole layered document by definition, so the scope
+          // toggle would be meaningless.
+          const scope = $('exp-scope');
+          if (scope) scope.style.display = (ext === 'psd') ? 'none' : '';
         }
         function openExportDialog(scope) {
           expScope = scope || 'all';
@@ -17904,6 +18798,7 @@
           if (expScope === 'layer') bits.push('Exporting "' + ((l && l.name) || 'current layer') + '" only.');
           else bits.push('Exporting all visible layers, flattened.');
           if (fmt === 'jpg') bits.push('JPG has no transparency — transparent areas become white.');
+          if (fmt === 'psd') bits.push('PSD keeps every layer separate, with its name, opacity and blend mode.');
           n.textContent = bits.join(' ');
         }
         document.querySelectorAll('#exp-scope .toggle-btn').forEach(b => {
@@ -17933,6 +18828,24 @@
           if (pq && $('exp-quality')) pq.value = $('exp-quality').value;
           const nm = ($('exp-name').value || '').trim();
           closeExportDialog();
+          if (($('exp-format') || {}).value === 'psd') {
+            try {
+              banner('Building PSD…');
+              const data = psdExport(nm);
+              const blob = new Blob([data], { type: 'image/vnd.adobe.photoshop' });
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = (nm || 'artwork') + '.psd';
+              document.body.appendChild(a); a.click(); a.remove();
+              setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+              const n = layers.filter(l => l.kind !== 'group' && l.canvas).length;
+              banner('Exported ' + n + ' layer' + (n === 1 ? '' : 's') + ' as PSD.');
+            } catch (err) {
+              console.error('PSD export failed:', err);
+              banner('\u26a0\ufe0f Couldn\'t build the PSD: ' + ((err && err.message) || err));
+            }
+            return;
+          }
           // doExport reads the name from the shared panel field, so set it for the
           // duration of this export. For a layer export we restore the previous
           // value afterwards, otherwise the layer's name would silently become the
@@ -18524,7 +19437,9 @@
             { name: 'Face',   hint: 'Fill one flat face at a time', apply: () => pick('paint-mode', 'face') },
             { name: 'Object', hint: 'Recolour the whole object',    apply: () => pick('paint-mode', 'object') }
           ]},
-          slice: { label: 'Slice options', items: [
+          // Slice modes were also on the Slice panel and the floating bar, so a
+          // third route to them was clutter rather than convenience.
+          _slice_removed: { label: 'Slice options', items: [
             { name: 'Keep both halves', hint: 'Cut and keep each side', apply: () => clickId('slice-keep-both') },
             { name: 'Keep front half',  hint: 'Discard the back',       apply: () => clickId('slice-keep-pos') },
             { name: 'Keep back half',   hint: 'Discard the front',      apply: () => clickId('slice-keep-neg') }
@@ -18655,14 +19570,12 @@
 
         const MENUS = [
           { name: 'File', items: [
+            { label: 'Files…',               fn: () => window.openFilesDialog && openFilesDialog() },
+            { sep: true },
             { label: 'Import model…',        fn: () => hit('bld-dropzone') },
+            { label: 'Export model…',        fn: () => window.openExportModel && openExportModel() },
             { sep: true },
-            { label: 'Export STL',           fn: () => hit('bld-export-stl') },
-            { label: 'Export OBJ',           fn: () => hit('bld-export-obj') },
-            { label: 'Export 3MF',           fn: () => hit('bld-export-3mf') },
-            { sep: true },
-            { label: 'Saved versions',       fn: () => tab('ie') },
-            { label: 'Print check…',         fn: () => { tab('ie'); setTimeout(() => hit('pc-run'), 250); } },
+            { label: 'Saved versions…',      fn: () => { if (window.openFilesDialog) { openFilesDialog(); setTimeout(() => { const b=document.querySelector('#fd-tabs button[data-fd="versions"]'); if(b) b.click(); }, 40); } } },
             { sep: true },
             { label: 'Save session now',     fn: () => hit('bld-session-save') },
             { label: 'Clear scene',          fn: () => hit('bld-session-clear') }
@@ -18732,6 +19645,8 @@
             { label: 'Measure',            fn: () => tool('measure') }
           ]},
           { name: 'View', items: [
+            { label: 'Panels…', fn: () => window.openPanelManager && openPanelManager() },
+            { sep: true },
             { label: 'Frame selection', fn: () => hit('bld-frame-sel') },
             { label: 'Frame all',       fn: () => hit('bld-frame-all') },
             { sep: true },
@@ -18739,7 +19654,6 @@
             { label: 'Select',          fn: () => tab('select') },
             { label: 'Create',          fn: () => tab('create') },
             { label: 'Edit',            fn: () => tab('edit') },
-            { label: 'Import / export', fn: () => tab('ie') }
           ]}
         ];
 
@@ -18935,6 +19849,476 @@
         if (a) a.onclick = apply;
       }
       window.openBuilderDialog = open;
+    })();
+  </script>
+  <script>
+    // ── 3D Files dialog ──────────────────────────────────────────────────────
+    // Export, import, saved versions and the print check were four sections in a
+    // long sidebar tab. They're now one window with its own tabs. The sections
+    // themselves are MOVED into the dialog and put back on close — not copied —
+    // so there is still exactly one of each control and all existing wiring
+    // continues to work untouched.
+    (function () {
+      // Export and the print check moved into the Export model dialog, where
+      // they belong together — this window is now import and version history.
+      const PANES = {
+        import:   { ids: ['sec-import'] },
+        versions: { ids: ['sec-saves'] }
+      };
+      let homes = null, current = null;
+
+      function stash() {
+        if (homes) return;
+        homes = {};
+        Object.values(PANES).forEach(p => p.ids.forEach(id => {
+          const el = document.getElementById(id);
+          if (el) homes[id] = { parent: el.parentElement, next: el.nextSibling };
+        }));
+      }
+      function show(key) {
+        const body = document.getElementById('fd-body');
+        if (!body) return;
+        // Return whatever is on screen to the body's holding area first.
+        current = key;
+        document.querySelectorAll('#fd-tabs button').forEach(b =>
+          b.classList.toggle('active', b.dataset.fd === key));
+        Object.entries(PANES).forEach(([k, p]) => p.ids.forEach(id => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          if (k === key) { el.style.display = ''; body.appendChild(el); }
+          else if (el.parentElement === body) { el.style.display = 'none'; }
+        }));
+      }
+      function open() {
+        stash();
+        document.getElementById('fd-backdrop').classList.add('open');
+        document.getElementById('fd-dialog').classList.add('open');
+        show(current || 'import');
+      }
+      function close() {
+        // Put every section back exactly where it came from, so the sidebar's own
+        // tab logic keeps working if it's ever shown again.
+        if (homes) Object.entries(homes).forEach(([id, h]) => {
+          const el = document.getElementById(id);
+          if (el && h.parent) h.parent.insertBefore(el, h.next);
+        });
+        document.getElementById('fd-backdrop').classList.remove('open');
+        document.getElementById('fd-dialog').classList.remove('open');
+      }
+      window.openFilesDialog = open;
+
+      function wire() {
+        document.querySelectorAll('#fd-tabs button').forEach(b => {
+          b.onclick = () => show(b.dataset.fd);
+        });
+        const c = document.getElementById('fd-close');
+        if (c) c.onclick = close;
+        const bd = document.getElementById('fd-backdrop');
+        if (bd) bd.onclick = close;
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
+      else wire();
+    })();
+  </script>
+  <script>
+    // ── Export model dialog (3D) ─────────────────────────────────────────────
+    // One "Export model…" entry in File, opening a window that covers naming, the
+    // format, and the print validation you'd want to run before committing to a
+    // job. Everything here drives the EXISTING controls — the three export
+    // buttons, the repair button and the print check — so there is still one
+    // implementation of each and the results stay identical.
+    (function () {
+      let settingsHome = null;
+
+      function syncExt() {
+        const f = document.getElementById('me-format');
+        const ext = f ? f.value : 'stl';
+        const e = document.getElementById('me-ext');
+        if (e) e.textContent = '.' + ext;
+        // "Keep original UVs" only means anything for OBJ.
+        const uv = document.getElementById('me-uv-row');
+        if (uv) uv.style.display = (ext === 'obj') ? '' : 'none';
+        note();
+      }
+      function note() {
+        const n = document.getElementById('me-note');
+        if (!n) return;
+        const f = (document.getElementById('me-format') || {}).value || 'stl';
+        n.textContent = f === 'stl'
+          ? 'STL carries shape only — no colour. This is what most slicers expect.'
+          : f === 'obj'
+            ? 'OBJ keeps colour. For painting apps like Procreate leave "Keep original UVs" off.'
+            : '3MF keeps colour, units and object separation — the richest option where your slicer supports it.';
+      }
+      function open() {
+        const dlg = document.getElementById('me-dialog');
+        if (!dlg) return;
+        // Seed the name from the existing field so the two never disagree.
+        const src = document.getElementById('export-name');
+        const nm = document.getElementById('me-name');
+        if (src && nm) nm.value = src.value || '';
+        const uv = document.getElementById('export-keepuv');
+        const meuv = document.getElementById('me-keepuv');
+        if (uv && meuv) meuv.checked = uv.checked;
+        // Borrow the printer settings from the print-check panel rather than
+        // duplicating four sliders that would then need keeping in step.
+        const pc = document.getElementById('sec-printcheck');
+        const host = document.getElementById('me-settings-body');
+        if (pc && host && pc.parentElement !== host) {
+          settingsHome = { parent: pc.parentElement, next: pc.nextSibling };
+          pc.style.display = '';
+          host.appendChild(pc);
+        }
+        syncExt();
+        document.getElementById('me-backdrop').classList.add('open');
+        dlg.classList.add('open');
+      }
+      function close() {
+        // Put the print-check section back where it lives.
+        const pc = document.getElementById('sec-printcheck');
+        if (pc && settingsHome && settingsHome.parent) {
+          settingsHome.parent.insertBefore(pc, settingsHome.next);
+          settingsHome = null;
+        }
+        document.getElementById('me-backdrop').classList.remove('open');
+        document.getElementById('me-dialog').classList.remove('open');
+      }
+      window.openExportModel = open;
+
+      function wire() {
+        const on = (id, fn, ev) => { const e = document.getElementById(id); if (e) e[ev || 'onclick'] = fn; };
+        on('me-close', close);
+        on('me-cancel', close);
+        on('me-backdrop', close);
+        on('me-format', syncExt, 'onchange');
+        on('me-check', () => {
+          const b = document.getElementById('pc-run');
+          if (b) b.click();
+          // Show the report inside this dialog rather than back in the sidebar.
+          setTimeout(() => {
+            const res = document.getElementById('pc-results');
+            const here = document.getElementById('me-results');
+            if (res && here) here.innerHTML = res.innerHTML;
+          }, 350);
+        });
+        on('me-repair', () => {
+          const b = document.getElementById('bld-repair-mesh');
+          if (b) b.click();
+        });
+        on('me-go', () => {
+          const nm = (document.getElementById('me-name').value || '').trim();
+          const src = document.getElementById('export-name');
+          if (src) src.value = nm;
+          const uv = document.getElementById('export-keepuv');
+          const meuv = document.getElementById('me-keepuv');
+          if (uv && meuv) uv.checked = meuv.checked;
+          const f = document.getElementById('me-format').value;
+          const map = { stl: 'bld-export-stl', obj: 'bld-export-obj', '3mf': 'bld-export-3mf' };
+          close();
+          const b = document.getElementById(map[f]);
+          if (b) b.click();
+        });
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
+      else wire();
+    })();
+  </script>
+  <script>
+    // ── Full panels toggle ───────────────────────────────────────────────────
+    // By default the sidebars show only settings, because the menu bar and the
+    // dialogs own the commands. Turning this on restores every original panel —
+    // the tabs, the buttons, the lot — which is easier on a touch screen where
+    // tapping a visible button beats opening a menu. Nothing is duplicated: the
+    // panels and the menus have always driven the same controls, so both routes
+    // work and stay in step.
+    (function () {
+      const KEY = 'modelsmith_panels_v1';
+      function apply(on) {
+        document.querySelectorAll('.app-container').forEach(c => c.classList.toggle('panels', on));
+        document.querySelectorAll('.ms-panels-state').forEach(e => {
+          e.textContent = on ? 'Hide extra panels' : 'Show all panels';
+        });
+      }
+      function get() {
+        try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+      }
+      window.msTogglePanels = function () {
+        const on = !get();
+        try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+        apply(on);
+        const b = document.getElementById('bld-banner') || document.getElementById('paint-banner');
+        if (b) b.textContent = on
+          ? 'All panels shown — every command is now in the sidebar as well as the menus.'
+          : 'Extra panels hidden — commands live in the menu bar.';
+      };
+      window.msPanelsOn = get;
+      function boot() { apply(get()); }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
+    })();
+  </script>
+  <script>
+    // ── Panel manager ────────────────────────────────────────────────────────
+    // Every command lives in the menus, and the sidebar panels are hidden by
+    // default so they aren't a second copy of the same thing. Some people would
+    // rather tap a visible button than open a menu — especially on a touch
+    // screen — so this lets you switch panels back on one at a time, with an eye
+    // icon showing which are on. Both routes drive the same controls, so nothing
+    // is duplicated and they can never disagree.
+    (function () {
+      const KEY = 'modelsmith_panelitems_v1';
+      // id, label, and which workspace it belongs to.
+      const ITEMS = [
+        { id: 'sec-primitives', label: 'Primitives',            where: 'Create', ws: '3d' },
+        { id: 'sec-text3d',     label: '3D text',                where: 'Create', ws: '3d' },
+        { id: 'sec-img3d',      label: 'Image \u2192 3D',            where: 'Create', ws: '3d' },
+        { id: 'sec-thread',     label: 'Screw thread',           where: 'Create', ws: '3d' },
+        { id: 'sec-booleans',   label: 'Booleans',              where: 'Edit', ws: '3d' },
+        { id: 'bld-mirror-x',   label: 'Mirror buttons',        where: 'Edit', ws: '3d', also: ['bld-mirror-y','bld-mirror-z'] },
+        { id: 'bld-group',      label: 'Group / ungroup / merge',where: 'Edit', ws: '3d', also: ['bld-ungroup','bld-merge'] },
+        { id: 'bld-align-min',  label: 'Align & distribute',    where: 'Edit', ws: '3d', also: ['bld-align-mid','bld-align-max','bld-distribute'] },
+        { id: 'bld-smooth-run', label: 'Smooth button',         where: 'Edit', ws: '3d' },
+        { id: 'bld-select-all', label: 'Select & frame buttons',where: 'Select', ws: '3d', also: ['bld-select-none','bld-frame-sel','bld-frame-all','bld-multiselect-toggle'] },
+        { id: 'bld-export-stl', label: 'Export buttons',        where: 'Files', ws: '3d', also: ['bld-export-obj','bld-export-3mf','bld-repair-mesh'] },
+        { id: 'bld-duplicate',  label: 'Duplicate / delete / drop', where: 'Files', ws: '3d', also: ['bld-settle','bld-delete'] },
+        { id: 'bld-session-save', label: 'Session buttons',     where: 'Files', ws: '3d', also: ['bld-session-clear'] },
+        { id: 'lsub-new',       label: 'Create & arrange',      where: 'Layers', ws: '2d' },
+        { id: 'lsub-mask',      label: 'Mask controls',         where: 'Layers', ws: '2d' },
+        { id: 'pf-png',         label: 'Export buttons',        where: 'Files', ws: '2d', also: ['pf-png-layer','pf-clear'] },
+        { id: 'pf-to3d',        label: 'Send to 3D buttons',    where: 'Files', ws: '2d', also: ['pf-to3d-tex','pf-to3d-plane'] }
+      ];
+      // Tabs that only exist when their panel is on.
+      const TABS = [
+        { id: 'tab-create', label: 'Create tab', where: 'tab', ws: '3d', sel: '#side-tabs button[data-tab="create"]' },
+        { id: 'tab-ie',     label: 'Files tab',  where: 'tab', ws: '3d', sel: '#side-tabs button[data-tab="ie"]' },
+        { id: 'tab-files2d',label: 'Files tab',  where: 'tab', ws: '2d', sel: '#paint-tabs button[data-ptab="files"]' }
+      ];
+
+      function get() {
+        try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); }
+        catch (e) { return new Set(); }
+      }
+      function save(s) {
+        try { localStorage.setItem(KEY, JSON.stringify([...s])); } catch (e) {}
+      }
+      function applyOne(key, on) {
+        const item = ITEMS.find(i => i.id === key);
+        if (item) {
+          [item.id, ...(item.also || [])].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('ms-show', on);
+          });
+          return;
+        }
+        const tab = TABS.find(t => t.id === key);
+        if (tab) {
+          const el = document.querySelector(tab.sel);
+          if (el) el.classList.toggle('ms-show', on);
+        }
+      }
+      function applyAll() {
+        const s = get();
+        ITEMS.forEach(i => applyOne(i.id, s.has(i.id)));
+        TABS.forEach(t => applyOne(t.id, s.has(t.id)));
+      }
+
+      const EYE_ON = '<svg class="pn-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+      const EYE_OFF = '<svg class="pn-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.9 9.9 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 4.2-.95"/></svg>';
+
+      // Which workspace is on screen? Listing 2D panels while you're modelling in
+      // 3D is just noise — you can't see the effect of ticking them.
+      function activeWs() {
+        const p = document.getElementById('paint-app');
+        return (p && p.style.display !== 'none') ? '2d' : '3d';
+      }
+      function render() {
+        const host = document.getElementById('pn-list');
+        if (!host) return;
+        const s = get();
+        const ws = activeWs();
+        const t = document.getElementById('pn-title');
+        if (t) t.textContent = ws === '2d' ? 'Panels — 2D studio' : 'Panels — 3D workspace';
+        host.innerHTML = '';
+        const all = [
+          ...TABS.filter(t => t.ws === ws).map(t => ({ id: t.id, label: t.label, where: t.where })),
+          ...ITEMS.filter(i => i.ws === ws).map(i => ({ id: i.id, label: i.label, where: i.where }))
+        ];
+        all.forEach(row => {
+          const on = s.has(row.id);
+          const b = document.createElement('button');
+          b.className = 'pn-row' + (on ? ' on' : '');
+          b.innerHTML = (on ? EYE_ON : EYE_OFF) +
+            '<span class="pn-label">' + row.label + '</span>' +
+            '<span class="pn-where">' + row.where + '</span>';
+          b.onclick = () => {
+            const cur = get();
+            if (cur.has(row.id)) cur.delete(row.id); else cur.add(row.id);
+            save(cur); applyOne(row.id, cur.has(row.id)); render();
+          };
+          host.appendChild(b);
+        });
+      }
+      function open() {
+        render();
+        document.getElementById('pn-backdrop').classList.add('open');
+        document.getElementById('pn-dialog').classList.add('open');
+      }
+      function close() {
+        document.getElementById('pn-backdrop').classList.remove('open');
+        document.getElementById('pn-dialog').classList.remove('open');
+      }
+      window.openPanelManager = open;
+
+      function wire() {
+        const on = (id, fn) => { const e = document.getElementById(id); if (e) e.onclick = fn; };
+        on('pn-close', close);
+        on('pn-backdrop', close);
+        // Show/Hide all act on the workspace you're looking at, leaving the other
+        // one's choices alone.
+        on('pn-all', () => {
+          const ws = activeWs(), s = get();
+          ITEMS.filter(i => i.ws === ws).forEach(i => s.add(i.id));
+          TABS.filter(t => t.ws === ws).forEach(t => s.add(t.id));
+          save(s); applyAll(); render();
+        });
+        on('pn-none', () => {
+          const ws = activeWs(), s = get();
+          ITEMS.filter(i => i.ws === ws).forEach(i => s.delete(i.id));
+          TABS.filter(t => t.ws === ws).forEach(t => s.delete(t.id));
+          save(s); applyAll(); render();
+        });
+        applyAll();
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
+      else wire();
+    })();
+  </script>
+  <script>
+    // ── Shared inline rename ─────────────────────────────────────────────────
+    // The 2D studio already had an inline rename for layers, but it lived inside
+    // the Paint scope so the 3D object browser couldn't use it. This is the same
+    // behaviour exposed once for both: the label turns into a text field in
+    // place, Enter commits, Escape cancels, clicking away saves.
+    (function () {
+      window.msInlineRename = function (labelEl, current, commit, onCancel) {
+        if (!labelEl || labelEl.dataset.renaming) return;
+        const host = labelEl.parentElement;
+        if (!host) return;
+        labelEl.dataset.renaming = '1';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'ms-rename';
+        input.value = current || '';
+        const prev = labelEl.style.display;
+        labelEl.style.display = 'none';
+        host.insertBefore(input, labelEl.nextSibling);
+        let done = false;
+        const finish = (save) => {
+          if (done) return; done = true;
+          const v = input.value.trim();
+          input.remove();
+          labelEl.style.display = prev;
+          delete labelEl.dataset.renaming;
+          if (save && v && v !== current) commit(v);
+          else if (onCancel) onCancel();
+        };
+        // The 3D workspace binds single-key shortcuts (space among them), and they
+        // listen on keyup/keypress as well as keydown. Without blocking all three
+        // typing a space would trigger a shortcut instead of reaching the field —
+        // "Heel wedge" came out as "Heel".
+        input.onkeydown = (e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+          else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        };
+        input.onkeyup = (e) => e.stopPropagation();
+        input.onkeypress = (e) => e.stopPropagation();
+        input.onblur = () => finish(true);
+        // Stop a click inside the field from re-triggering the row underneath.
+        input.onclick = (e) => e.stopPropagation();
+        input.onpointerdown = (e) => e.stopPropagation();
+        input.focus();
+        input.select();
+      };
+    })();
+  </script>
+  <script>
+    // ── Sidebar resizing ─────────────────────────────────────────────────────
+    // Adds a drag handle to each sidebar's inner edge. Pointer events so it works
+    // with a mouse or a stylus; hidden on touch, where there's no precise cursor
+    // and an edge drag would fight with scrolling.
+    (function () {
+      const KEY = 'modelsmith_sidew_v1';
+      const MIN = 210, MAX = 620;
+      function widths() {
+        try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; }
+      }
+      function saveWidth(id, w) {
+        const all = widths(); all[id] = w;
+        try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) {}
+      }
+      function attach(bar) {
+        if (!bar || bar.querySelector('.side-grip')) return;
+        bar.style.position = bar.style.position || 'relative';
+        const grip = document.createElement('div');
+        grip.className = 'side-grip';
+        grip.title = 'Drag to resize · double-click to reset';
+        bar.appendChild(grip);
+        // Put the handle on the edge that faces the canvas, and keep it there if
+        // the panel is flipped to the other side.
+        const placeGrip = () => {
+          const b = bar.getBoundingClientRect();
+          grip.dataset.edge = (b.left > window.innerWidth / 2) ? 'left' : 'right';
+        };
+        placeGrip();
+        window.addEventListener('resize', placeGrip);
+        const flip = document.getElementById('side-flip');
+        if (flip) flip.addEventListener('click', () => setTimeout(placeGrip, 260));
+
+        const stored = widths()[bar.id];
+        if (stored) bar.style.width = stored + 'px';
+
+        let startX = 0, startW = 0;
+        grip.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          grip.setPointerCapture(e.pointerId);
+          startX = e.clientX;
+          startW = bar.getBoundingClientRect().width;
+          grip.classList.add('dragging');
+          bar.classList.add('resizing');
+          document.body.classList.add('ms-resizing');
+        });
+        grip.addEventListener('pointermove', (e) => {
+          if (!grip.classList.contains('dragging')) return;
+          // Which way widens depends on which side the panel is docked.
+          const onRight = grip.dataset.edge === 'left';   // handle on the left = panel on the right
+          const delta = onRight ? (startX - e.clientX) : (e.clientX - startX);
+          const w = Math.max(MIN, Math.min(MAX, Math.round(startW + delta)));
+          bar.style.width = w + 'px';
+        });
+        const end = () => {
+          if (!grip.classList.contains('dragging')) return;
+          grip.classList.remove('dragging');
+          bar.classList.remove('resizing');
+          document.body.classList.remove('ms-resizing');
+          saveWidth(bar.id, Math.round(bar.getBoundingClientRect().width));
+          // The 3D renderer sizes itself to its container, so tell it to re-measure.
+          window.dispatchEvent(new Event('resize'));
+        };
+        ['pointerup', 'pointercancel'].forEach(ev => grip.addEventListener(ev, end));
+        // Double-click the handle to return to the default width.
+        grip.addEventListener('dblclick', () => {
+          bar.style.width = '';
+          const all = widths(); delete all[bar.id];
+          try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (e) {}
+          window.dispatchEvent(new Event('resize'));
+        });
+      }
+      function boot() {
+        ['app-sidebar', 'paint-sidebar'].forEach(id => attach(document.getElementById(id)));
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+      else boot();
     })();
   </script>
 </body>
