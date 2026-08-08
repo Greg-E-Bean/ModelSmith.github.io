@@ -2739,6 +2739,8 @@
           <input type="range" id="cast-wall" min="1.5" max="10" step="0.5" value="3">
           <div class="param-label">Floor thickness <span class="val" id="cast-base-val">4 mm</span></div>
           <input type="range" id="cast-base" min="1.5" max="15" step="0.5" value="4">
+          <label class="hud-check" style="margin:8px 0 4px;"><input type="checkbox" id="cast-funnel" checked> Pour funnel on the pattern</label>
+          <div class="hint" style="text-align:left; margin-top:0;">The funnel is part of the printed pattern, so the cured rubber gets a channel to fill the finished part through. Alignment pegs sit inside the box walls so the halves key together.</div>
         </div>
         <div class="param-label">Wall thickness <span class="val" id="mold-wall-val">8 mm</span></div>
         <input type="range" id="mold-wall" min="2" max="30" step="0.5" value="8">
@@ -6789,20 +6791,54 @@
         pat.updateMatrixWorld(true);
         box = box.union(CSG.fromMesh(pat));
 
-        // Registration pegs so the halves line up. Same approach as the block mould:
-        // added one at a time, because unioning several disjoint solids at once
-        // collapses this BSP engine.
-        const pegLen = o.pegR * o.pegLenMul;
-        const along = (o.split === 'z') ? 'x' : 'z';
-        const halfSpan = (along === 'x' ? ow : od) / 2;
-        const seat = (o.split === 'z') ? ctr.z : ctr.x;
+        // ── Pour funnel ──────────────────────────────────────────────────────
+        // A cone standing on top of the pattern, reaching the rim. It's part of
+        // the printed positive, so the cured rubber ends up with a funnel-shaped
+        // channel down to the part — that's how you fill the finished mould.
+        if (o.funnel !== false) {
+          const rTop = Math.max(2.5, Math.min(iw, id) * 0.16);
+          const rBot = Math.max(1.5, rTop * 0.45);
+          const top = baseY + oh;
+          const patTop = bb.max.y;
+          // Sink the funnel INTO the pattern rather than resting it on top. Its
+          // base used to sit exactly at the pattern's highest point, which on any
+          // curved top (sphere, cone, a scanned last) is a single point of
+          // contact — so the funnel printed as a floating cone. Overlapping by a
+          // quarter of the pattern's height guarantees a solid join whatever the
+          // shape.
+          const patH = Math.max(1, bb.max.y - bb.min.y);
+          const sink = Math.min(patH * 0.25, Math.max(3, patH * 0.12));
+          const fBase = patTop - sink;
+          const fh = Math.max(2, top - fBase);
+          try {
+            const fun = new THREE.Mesh(
+              new THREE.CylinderGeometry(rTop, rBot, fh, 24),
+              new THREE.MeshStandardMaterial());
+            fun.position.set(ctr.x, fBase + fh / 2, ctr.z);
+            fun.updateMatrixWorld(true);
+            const withFun = box.union(CSG.fromMesh(fun));
+            if (CSG.toGeometry(withFun).attributes.position.count / 3 > 24) box = withFun;
+          } catch (e) { /* funnel is optional — never lose the box over it */ }
+        }
+
+        // ── Registration ─────────────────────────────────────────────────────
+        // Pegs must sit INSIDE THE WALL of the mating face, not in the cavity.
+        // Placing them by a fraction of the outer half-width put them in mid-air
+        // inside the box, so they printed as loose floating cylinders. The wall
+        // band runs from iw/2 out to ow/2, so the centre of that band is the only
+        // place a peg is actually supported.
+        const wallMidX = (iw / 2 + ow / 2) / 2;
+        const wallMidZ = (id / 2 + od / 2) / 2;
+        // A peg can never be wider than the wall it lives in.
+        const pegR = Math.max(0.8, Math.min(o.pegR, o.wall * 0.34));
+        const pegLen = pegR * o.pegLenMul;
         const spots = [];
-        [-0.62, 0.62].forEach(u => {
-          [-0.34, 0.34].forEach(v => {
+        [-1, 1].forEach(u => {
+          [0.28, 0.72].forEach(v => {
             const p = new THREE.Vector3();
-            p.y = baseY + oh * (0.5 + v * 0.5);
-            if (along === 'x') { p.x = ctr.x + halfSpan * u; p.z = seat; }
-            else { p.z = ctr.z + halfSpan * u; p.x = seat; }
+            p.y = baseY + oh * v;
+            if (o.split === 'z') { p.x = ctr.x + wallMidX * u; p.z = ctr.z; }
+            else                 { p.z = ctr.z + wallMidZ * u; p.x = ctr.x; }
             spots.push(p);
           });
         });
@@ -6811,21 +6847,16 @@
         spots.forEach(p => {
           try {
             const peg = new THREE.Mesh(
-              new THREE.CylinderGeometry(o.pegR * 0.45, o.pegR, pegLen, 18),
+              new THREE.CylinderGeometry(pegR * 0.5, pegR, pegLen, 18),
               new THREE.MeshStandardMaterial());
+            // Lie the peg along the split axis so it bridges the two halves.
             peg.rotation.set(o.split === 'z' ? Math.PI / 2 : 0, 0, o.split === 'z' ? 0 : Math.PI / 2);
             peg.position.copy(p);
+            peg.position[o.split === 'z' ? 'z' : 'x'] += pegLen / 2;   // sits on one side only
             peg.updateMatrixWorld(true);
-            const socket = new THREE.Mesh(
-              new THREE.CylinderGeometry(o.pegR * 0.45 + o.pegClear, o.pegR + o.pegClear, pegLen + o.pegClear * 2, 18),
-              new THREE.MeshStandardMaterial());
-            socket.rotation.copy(peg.rotation);
-            socket.position.copy(p);
-            socket.updateMatrixWorld(true);
             const withPeg = box.union(CSG.fromMesh(peg));
-            const test = CSG.toGeometry(withPeg);
-            if (test.attributes.position.count / 3 > 24) { box = withPeg; added++; }
-          } catch (e) { /* skip this peg, keep the box */ }
+            if (CSG.toGeometry(withPeg).attributes.position.count / 3 > 24) { box = withPeg; added++; }
+          } catch (e) { /* skip this peg */ }
         });
         if (!added) box = safe;
 
@@ -7185,6 +7216,7 @@
           opts.gap  = parseFloat(el('cast-gap')  ? el('cast-gap').value  : 12) || 12;
           opts.wall = parseFloat(el('cast-wall') ? el('cast-wall').value : 3) || 3;
           opts.base = parseFloat(el('cast-base') ? el('cast-base').value : 4) || 4;
+          opts.funnel = el('cast-funnel') ? el('cast-funnel').checked : true;
         }
 
         let res;
@@ -14858,8 +14890,12 @@
         const src = document.createElement('canvas');
         src.width = W; src.height = H;
         src.getContext('2d').drawImage(l.canvas, 0, 0);
-        const n = 12;                                   // grid resolution
-        puppet = { pins: [], src, n, drag: null, layerId: l.id };
+        // Two resolutions. A 12x12 grid over a 1024px canvas gives ~85px cells,
+        // which is what made the result look faceted. Measured cost of a full
+        // warp pass: 12x12 = 20ms, 32x32 = 26ms, 72x72 = ~140ms. So drag at 32
+        // (still responsive) and rebuild at 72 when you commit, where a moment's
+        // wait is worth a smooth result.
+        puppet = { pins: [], src, n: 32, nFine: 72, drag: null, layerId: l.id };
         setTool('puppet');
         composite();
         banner('Puppet warp — tap to add pins, then drag them. Enter applies, Esc cancels.');
@@ -14894,6 +14930,19 @@
 
       // Draw one triangle of the source through the affine transform that carries
       // its original corners onto its warped ones.
+      // Nudge a triangle's corners outward from its own centroid. Clipping to an
+      // exact triangle leaves a half-pixel antialiased edge on every side, and
+      // with thousands of triangles those show up as a fine grid of seams. A
+      // small overlap hides them completely.
+      function puppetExpand(p0, p1, p2, amt) {
+        const cx = (p0.x + p1.x + p2.x) / 3, cy = (p0.y + p1.y + p2.y) / 3;
+        const grow = (p) => {
+          const dx = p.x - cx, dy = p.y - cy;
+          const d = Math.hypot(dx, dy) || 1;
+          return { x: p.x + (dx / d) * amt, y: p.y + (dy / d) * amt };
+        };
+        return [grow(p0), grow(p1), grow(p2)];
+      }
       function puppetDrawTri(ctx, img, s0, s1, s2, d0, d1, d2) {
         const x0=s0.x, y0=s0.y, x1=s1.x, y1=s1.y, x2=s2.x, y2=s2.y;
         const u0=d0.x, v0=d0.y, u1=d1.x, v1=d1.y, u2=d2.x, v2=d2.y;
@@ -14906,8 +14955,9 @@
         const e =  (x0*(y2*u1 - y1*u2) + y0*(x1*u2 - x2*u1) + (x2*y1 - x1*y2)*u0) / den;
         const f =  (x0*(y2*v1 - y1*v2) + y0*(x1*v2 - x2*v1) + (x2*y1 - x1*y2)*v0) / den;
         ctx.save();
+        const [e0, e1, e2] = puppetExpand({x:u0,y:v0}, {x:u1,y:v1}, {x:u2,y:v2}, 0.7);
         ctx.beginPath();
-        ctx.moveTo(u0, v0); ctx.lineTo(u1, v1); ctx.lineTo(u2, v2); ctx.closePath();
+        ctx.moveTo(e0.x, e0.y); ctx.lineTo(e1.x, e1.y); ctx.lineTo(e2.x, e2.y); ctx.closePath();
         ctx.clip();
         ctx.transform(a, b, c, d, e, f);
         ctx.drawImage(img, 0, 0);
@@ -14915,8 +14965,8 @@
       }
 
       // Rebuild the warped layer from the snapshot.
-      function puppetApplyToCanvas(ctx) {
-        const n = puppet.n, sx = W / n, sy = H / n;
+      function puppetApplyToCanvas(ctx, res) {
+        const n = res || puppet.n, sx = W / n, sy = H / n;
         ctx.clearRect(0, 0, W, H);
         if (!puppet.pins.length) { ctx.drawImage(puppet.src, 0, 0); return; }
         // Cache the mapped grid so each vertex is only solved once.
@@ -14942,7 +14992,9 @@
       }
       function puppetCommit() {
         if (!puppet) return;
-        puppetPreview();
+        // Final pass at the fine grid — this is the version that gets kept.
+        const l = layers.find(x => x.id === puppet.layerId);
+        if (l) { puppetApplyToCanvas(l.ctx, puppet.nFine); touch(l); composite(); }
         const n = puppet.pins.length;
         puppet = null;
         setTool('brush');
