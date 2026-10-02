@@ -1,37 +1,27 @@
-# ModelSmith — GitHub Pages deployment
+# ModelSmith – project layout
 
-This folder is a complete, installable PWA. Every file needs to sit together
-at the same level in your repo (don't put them in subfolders) — the manifest,
-service worker, and icons are all linked with relative paths.
+| Path | What it is |
+|---|---|
+| `index.html` | Markup only; loads `css/styles.css` and the `js/` files in numbered order |
+| `css/styles.css` | All styling |
+| `js/NN-*.js` | Standalone scripts, loaded in number order (order matters) |
+| `src/paint-studio/*.js` | Source fragments of the Paint studio (edit these) |
+| `src/builder-3d/*.js` | Source fragments of the 3D builder (edit these) |
+| `js/vendor/` | Local copies of three.js r128 + OrbitControls/TransformControls (no CDN needed) |
+| `build.js` | Joins the fragments into `js/10-paint-studio.js` and `js/08-builder-3d.js` |
+| `sw.js` | Service worker; bump `CACHE_NAME` and list any new files in `APP_SHELL` |
 
-## Files
-- `index.html` — the app itself
-- `manifest.json` — PWA metadata (name, icons, colors)
-- `sw.js` — service worker (caches the app shell for offline use)
-- `icon-192.png`, `icon-512.png` — home-screen / app icons
-- `icon-512-maskable.png` — Android adaptive icon (has safe-zone padding)
-- `icon-180.png` — Apple touch icon
+## Workflow
 
-## Deploy steps
-1. Create a new GitHub repo (or use an existing one).
-2. Upload all the files in this folder to the **root** of the repo (or to a
-   `/docs` folder — just make sure Pages is set to serve wherever you put them).
-3. In the repo, go to **Settings → Pages**.
-4. Under "Build and deployment", set **Source** to "Deploy from a branch",
-   pick your branch (usually `main`) and the folder (`/root` or `/docs`).
-5. Save. GitHub will give you a URL like
-   `https://yourusername.github.io/your-repo-name/`.
-6. Open that URL — the app should load. On mobile, your browser should offer
-   "Add to Home Screen"; on desktop Chrome/Edge you'll see an install icon
-   in the address bar.
+1. Edit a fragment under `src/`, or a standalone file under `js/` (except the two bundles).
+2. Run `node build.js` (only needed for `src/` edits).
+3. Reload the app. Bump `CACHE_NAME` in `sw.js` when you release.
 
-## Updating later
-Whenever you upload a new `index.html`:
-- Bump `CACHE_NAME` in `sw.js` (e.g. `modelsmith-v2` → `modelsmith-v3`).
-  This is what forces the service worker to fetch the new version instead of
-  serving the old cached one to returning visitors.
+Do **not** edit `js/08-builder-3d.js` or `js/10-paint-studio.js` directly — they are generated and the next build overwrites them.
 
-## Note on icons
-The app icons were upscaled from a small embedded logo, so they're a little
-soft at 512px. If you have a higher-resolution version of the ModelSmith
-logo, send it over and I can regenerate crisp icons from it.
+Each bundle is one closure (`const Paint = (function(){...})()` / `const Builder = ...`), so fragments share variables and are only valid when joined in filename order. Errors in the browser console point at the bundle's line number; search that line's text in `src/` to find the fragment.
+
+## Security notes
+
+- `index.html` carries a Content-Security-Policy: scripts only from this origin, no inline scripts. Don't add inline `<script>` blocks or `onclick=` attributes; put code in a `js/` file.
+- Never put user-supplied text (layer/object/version names, file names) into `innerHTML`; use `textContent`.
